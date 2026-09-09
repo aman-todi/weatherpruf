@@ -478,3 +478,94 @@ async def run_where_clause(user_id: UUID, where_clause: str) -> dict[str, Any]:
         "truncated": len(items) == limit,
         "where_clause_executed": validated,
     }
+
+
+# ---------------------------------------------------------------------------
+# Fixed queries (spec §4)
+#
+# `list_category_items` and `get_closet_summary` never see assistant-supplied
+# predicate text at all. Both statements below are constant, with every value
+# bound as a parameter, so none of the machinery above applies to them — which
+# is exactly why the spec says to reach for these two first.
+# ---------------------------------------------------------------------------
+
+_ITEM_SELECT = (
+    "select id, category, colors, brand, warmth_rating, formality, tags, notes, fields "
+    "from public.closet_query_view"
+)
+
+
+def _row_to_item(row: Any) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "category": row["category"],
+        "colors": list(row["colors"] or []),
+        "brand": row["brand"],
+        "warmth_rating": row["warmth_rating"],
+        "formality": row["formality"],
+        "tags": list(row["tags"] or []),
+        "notes": row["notes"],
+        "fields": row["fields"] or {},
+    }
+
+
+async def list_category(user_id: UUID, category: str) -> dict[str, Any]:
+    """Every item in one category, up to the listing limit."""
+    settings = get_settings()
+    limit = settings.category_listing_limit
+
+    async with readonly_transaction() as conn:
+        rows = await conn.fetch(
+            f"{_ITEM_SELECT} where user_id = $1 and category = $2 "
+            "order by brand nulls last, id limit $3",
+            user_id,
+            category,
+            limit,
+        )
+
+    items = [_row_to_item(row) for row in rows]
+    return {
+        "category": category,
+        "items": items,
+        "count": len(items),
+        "limit": limit,
+        "truncated": len(items) == limit,
+    }
+
+
+async def closet_summary(user_id: UUID) -> dict[str, Any]:
+    """A shape-of-the-closet overview without pulling every item (spec §4)."""
+    async with readonly_transaction() as conn:
+        rows = await conn.fetch(
+            "select category, brand, warmth_rating, formality, tags "
+            "from public.closet_query_view where user_id = $1",
+            user_id,
+        )
+
+    per_category: dict[str, int] = {}
+    per_formality: dict[str, int] = {}
+    per_warmth: dict[str, int] = {}
+    brands: set[str] = set()
+    tags: set[str] = set()
+
+    for row in rows:
+        per_category[row["category"]] = per_category.get(row["category"], 0) + 1
+
+        formality = row["formality"] or "unspecified"
+        per_formality[formality] = per_formality.get(formality, 0) + 1
+
+        warmth = str(row["warmth_rating"]) if row["warmth_rating"] is not None else "unspecified"
+        per_warmth[warmth] = per_warmth.get(warmth, 0) + 1
+
+        if row["brand"]:
+            brands.add(row["brand"])
+        tags.update(row["tags"] or [])
+
+    return {
+        "total_items": len(rows),
+        "items_per_category": dict(sorted(per_category.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "brands": sorted(brands),
+        "tags": sorted(tags),
+        "formality_distribution": dict(sorted(per_formality.items())),
+        "warmth_distribution": dict(sorted(per_warmth.items())),
+    }

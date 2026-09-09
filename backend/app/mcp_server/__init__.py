@@ -18,6 +18,6 @@ services so the caps and RLS scoping behave identically on both surfaces.
 
 from __future__ import annotations
 
+from app.mcp_server.server import build_mcp_app, build_server
 
-def build_mcp_app():  # pragma: no cover - replaced by Ticket 3
-    return None
+__all__ = ["build_mcp_app", "build_server"]
