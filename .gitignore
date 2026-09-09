@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets — .env.example is committed, .env never is
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Local
+*.log
+.DS_Store
