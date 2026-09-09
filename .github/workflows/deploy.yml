@@ -1,0 +1,139 @@
+# Build the backend image, push it to ECR, and deploy it as an ECS Express Mode
+# service (spec §7 Ticket 5).
+#
+# Express Mode provisions the Fargate service, load balancer, TLS certificate,
+# auto-scaling and the public URL itself, so there is no task definition or
+# service YAML to maintain here — the deploy action passes configuration
+# directly and ECS creates the rest. See infra/README.md for the one-time
+# setup (ECR repository, the two IAM roles, and the Secrets Manager entries).
+
+name: Deploy backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "infra/Dockerfile"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: weatherpruf-backend
+  SERVICE_NAME: weatherpruf-backend
+
+permissions:
+  contents: read
+  id-token: write   # for OIDC role assumption; no long-lived AWS keys in secrets
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports: ["5432:5432"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Apply migrations to the test database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -c 'create database wardrobe_dev'
+          psql -h localhost -U postgres -d wardrobe_dev -v ON_ERROR_STOP=1 \
+            -f db/local/00_auth_shim.sql
+          for f in db/migrations/*.sql; do
+            psql -h localhost -U postgres -d wardrobe_dev -v ON_ERROR_STOP=1 -f "$f"
+          done
+          psql -h localhost -U postgres \
+            -c "alter role wardrobe_readonly with password 'readonly-ci'"
+
+      - name: Install and test
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wardrobe_dev
+          READONLY_DATABASE_URL: postgresql://wardrobe_readonly:readonly-ci@localhost:5432/wardrobe_dev
+        run: |
+          pip install -e '.[dev,mcp]'
+          ruff check app tests
+          ruff format --check app tests
+          pytest -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push the image
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/$ECR_REPOSITORY:${{ github.sha }}"
+          docker build -f infra/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy the ECS Express Mode service
+        uses: aws-actions/amazon-ecs-deploy-express-service@v1
+        with:
+          service-name: ${{ env.SERVICE_NAME }}
+          image: ${{ steps.image.outputs.uri }}
+          execution-role-arn: ${{ secrets.AWS_TASK_EXECUTION_ROLE_ARN }}
+          infrastructure-role-arn: ${{ secrets.AWS_INFRASTRUCTURE_ROLE_ARN }}
+          container-port: 8000
+          health-check-path: /health
+          cpu: "512"
+          memory: "1024"
+          min-task-count: 1
+          max-task-count: 2
+          # Non-sensitive configuration only. Anything secret goes through
+          # `secrets` below so it never appears in the task definition, the
+          # console, or these logs.
+          environment-variables: |
+            [
+              {"name": "ENVIRONMENT", "value": "production"},
+              {"name": "PUBLIC_BASE_URL", "value": "${{ vars.PUBLIC_BASE_URL }}"},
+              {"name": "CORS_ALLOW_ORIGINS", "value": "${{ vars.CORS_ALLOW_ORIGINS }}"},
+              {"name": "SUPABASE_URL", "value": "${{ vars.SUPABASE_URL }}"},
+              {"name": "DAILY_MCP_CALL_LIMIT", "value": "${{ vars.DAILY_MCP_CALL_LIMIT }}"}
+            ]
+          # Each entry is a single JSON key inside the one Secrets Manager
+          # secret described in infra/README.md. DATABASE_URL and
+          # READONLY_DATABASE_URL are deliberately separate values: the
+          # read-only role is the security backstop behind query_closet_items
+          # and must never share credentials with the application role.
+          secrets: |
+            [
+              {"name": "DATABASE_URL", "valueFrom": "${{ secrets.AWS_APP_SECRET_ARN }}:DATABASE_URL::"},
+              {"name": "READONLY_DATABASE_URL", "valueFrom": "${{ secrets.AWS_APP_SECRET_ARN }}:READONLY_DATABASE_URL::"},
+              {"name": "SUPABASE_SERVICE_ROLE_KEY", "valueFrom": "${{ secrets.AWS_APP_SECRET_ARN }}:SUPABASE_SERVICE_ROLE_KEY::"},
+              {"name": "SUPABASE_JWT_SECRET", "valueFrom": "${{ secrets.AWS_APP_SECRET_ARN }}:SUPABASE_JWT_SECRET::"}
+            ]

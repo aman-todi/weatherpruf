@@ -90,6 +90,25 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/items
 require. The token is HS256-signed with `SUPABASE_JWT_SECRET`; the auth dependency verifies it
 through exactly the same code path as a real Supabase token, with no test-only bypass.
 
+### 4. Demo data
+
+```bash
+backend/.venv/bin/python scripts/seed_demo_data.py --create-user
+backend/.venv/bin/python scripts/seed_demo_data.py --user-id <uuid> --replace
+```
+
+41 items across all 26 categories with varied colours, warmth, formality and
+tags — including the differentiating details the assistant is meant to notice,
+like `floral`, `multi-color`, and notes about what actually keeps rain out.
+Enough breadth for filtering demos to mean something.
+
+## Deployment
+
+See [`infra/README.md`](infra/README.md). One image serves both the REST API
+and the MCP sub-app, deployed as an ECS Express Mode service by
+`.github/workflows/deploy.yml`. Read the caveat at the top of that file about
+what has and has not been verified.
+
 ## Against a real Supabase project
 
 Run the files in `db/migrations/` in filename order through the SQL editor or the Supabase CLI.
@@ -153,5 +172,5 @@ Errors — domain and request-validation alike — come back in one envelope:
 | 2 | REST API for closet management | done |
 | 3 | MCP server: tools, safe query execution, rate limiting | in progress |
 | 4 | React + Vite frontend | in progress |
-| 5 | Docker + ECS Express Mode | not started |
-| 6 | End-to-end verification and polish | not started |
+| 5 | Docker + ECS Express Mode | scaffolded — see `infra/README.md` for what is unverified |
+| 6 | End-to-end verification and polish | seed script done; the Claude.ai smoke test needs a deployed instance |
