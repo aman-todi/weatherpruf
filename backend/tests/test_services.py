@@ -4,13 +4,19 @@ and the shared services enforce the caps and validation both surfaces rely on.
 
 from __future__ import annotations
 
-import uuid
-
+import asyncpg
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from app.config import get_settings
 from app.db import readonly_transaction
-from app.errors import ClosetFullError, NotFoundError, UnknownCategoryError, ValidationError
+from app.errors import (
+    ClosetFullError,
+    NotFoundError,
+    UnknownCategoryError,
+    UsageLimitExceededError,
+    ValidationError,
+)
 from app.models import ItemCreate, ItemUpdate, UserProfileUpdate
 from app.services import items, profile, taxonomy, usage
 
@@ -101,7 +107,7 @@ async def test_category_field_validation(user_id):
 
 
 async def test_sixth_color_is_rejected():
-    with pytest.raises(Exception):
+    with pytest.raises(PydanticValidationError, match="at most 5 colors"):
         ItemCreate(category="tshirt", colors=["a", "b", "c", "d", "e", "f"])
 
 
@@ -200,7 +206,7 @@ async def test_daily_call_cap_blocks_the_eleventh_call(user_id):
     for expected in range(1, 4):
         assert await usage.check_and_increment(user_id, limit=3) == expected
 
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(UsageLimitExceededError) as excinfo:
         await usage.check_and_increment(user_id, limit=3)
     assert "limit of 3" in str(excinfo.value)
 
@@ -223,13 +229,16 @@ async def test_account_deletion_leaves_nothing_behind(user_id):
 
     async with app_pool().acquire() as conn:
         for table in ("items", "user_profile", "usage_counters"):
-            assert await conn.fetchval(
-                f"select count(*) from public.{table} where user_id = $1", user_id
-            ) == 0
+            assert (
+                await conn.fetchval(
+                    f"select count(*) from public.{table} where user_id = $1", user_id
+                )
+                == 0
+            )
         assert await conn.fetchval("select count(*) from auth.users where id = $1", user_id) == 0
 
 
-async def test_readonly_pool_cannot_write(user_id):
+async def test_readonly_pool_reads_only_the_query_view(user_id):
     """The safe-query backstop, exercised through the pool the MCP tool uses."""
     await items.create_item(user_id, ItemCreate(category="tshirt", brand="Nike"))
 
@@ -239,7 +248,29 @@ async def test_readonly_pool_cannot_write(user_id):
         )
         assert [r["brand"] for r in rows] == ["Nike"]
 
-        with pytest.raises(Exception):
-            await conn.execute("update public.items set brand = 'pwned'")
-        with pytest.raises(Exception):
-            await conn.execute("select * from public.items")
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "update public.items set brand = 'pwned'",
+        "delete from public.items",
+        "insert into public.items (user_id, category_id) values (gen_random_uuid(), 'hat')",
+        "update public.closet_query_view set brand = 'pwned'",
+        "select * from public.items",
+        "select * from public.user_profile",
+        "select * from auth.users",
+        "create table public.pwned (x int)",
+    ],
+)
+async def test_readonly_role_refuses_everything_but_the_view(statement):
+    """Each attempt gets its own transaction: the first failure aborts the one
+    it runs in, so sharing a transaction would hide every later result behind
+    an InFailedSQLTransactionError rather than the refusal being asserted."""
+    refused = (
+        asyncpg.InsufficientPrivilegeError,
+        asyncpg.ReadOnlySQLTransactionError,
+        asyncpg.InvalidSchemaNameError,
+    )
+    async with readonly_transaction() as conn:
+        with pytest.raises(refused):
+            await conn.execute(statement)

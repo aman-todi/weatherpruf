@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import uuid
 
-import pytest
 import pytest_asyncio
 
 os.environ.setdefault("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:5432/wardrobe_dev")

@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 import httpx
@@ -167,10 +167,10 @@ def authenticate_bearer(token: str) -> AuthenticatedUser:
 _bearer_scheme = HTTPBearer(auto_error=False, description="Supabase access token")
 
 
-async def require_user(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
-) -> AuthenticatedUser:
+BearerCredentials = Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)]
+
+
+async def require_user(request: Request, credentials: BearerCredentials) -> AuthenticatedUser:
     """FastAPI dependency resolving a request to its authenticated user."""
     if credentials is None or not credentials.credentials:
         raise HTTPException(
@@ -181,7 +181,8 @@ async def require_user(
     try:
         user = get_verifier().verify(credentials.credentials)
     except AuthError as exc:
-        logger.info("rejected token from %s: %s", request.client.host if request.client else "?", exc)
+        client = request.client.host if request.client else "?"
+        logger.info("rejected token from %s: %s", client, exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),

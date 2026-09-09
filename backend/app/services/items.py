@@ -239,7 +239,7 @@ async def update_item(user_id: UUID, item_id: UUID, patch: ItemUpdate) -> Item:
         params.append(item_id)
         row = await conn.fetchrow(
             f"""
-            update public.items set {', '.join(assignments)}
+            update public.items set {", ".join(assignments)}
             where id = ${len(params)}
             returning {_ITEM_COLUMNS}
             """,

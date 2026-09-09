@@ -107,9 +107,9 @@ async def rls_transaction(user_id: UUID | str) -> AsyncIterator[asyncpg.Connecti
 
 
 @asynccontextmanager
-async def readonly_transaction(statement_timeout_ms: int | None = None) -> AsyncIterator[
-    asyncpg.Connection
-]:
+async def readonly_transaction(
+    statement_timeout_ms: int | None = None,
+) -> AsyncIterator[asyncpg.Connection]:
     """A read-only transaction over the restricted role.
 
     The role already carries ``default_transaction_read_only`` and a statement

@@ -121,12 +121,36 @@ the boundary.
 | `MAX_ITEMS_PER_USER` | Closet cap. Default 200. |
 | `DAILY_MCP_CALL_LIMIT` | Assistant calls per user per UTC day. Default 10 — deliberately tight; raising it is a one-line change. |
 
+## REST API
+
+All routes are under `/api` and require `Authorization: Bearer <supabase access token>`.
+
+| Method | Path | |
+|---|---|---|
+| `GET` | `/api/categories` | Every category with its field template — drives the dynamic form. |
+| `GET` | `/api/items` | Filter with `category`, repeatable `tags` (AND), `limit`, `offset`. Returns `{items, total}`, where `total` is the whole closet. |
+| `POST` | `/api/items` | 201 with the created item. |
+| `GET` `PATCH` `DELETE` | `/api/items/{id}` | `PATCH` is partial; `DELETE` returns 204. |
+| `GET` `PUT` | `/api/profile` | Never 404s — a user with no row gets the defaults. |
+| `GET` | `/api/me` | Account summary, today's usage, and the connector URL for the Connect page. |
+| `GET` | `/api/limits` | The caps that apply to this account. |
+| `DELETE` | `/api/account` | Items, profile, usage counters, and the Supabase auth user. |
+
+Errors — domain and request-validation alike — come back in one envelope:
+
+```json
+{"error": "closet_full", "message": "Your closet is at its 200-item limit...", "details": {}}
+```
+
+`error` is a stable code (`closet_full`, `validation_failed`, `unknown_category`, `not_found`,
+`daily_limit_reached`, `unsafe_query`); `message` is written to be shown to a person.
+
 ## Status
 
 | Ticket | Scope | State |
 |---|---|---|
 | 1 | Schema, RLS, read-only role, FastAPI skeleton, shared services | done |
-| 2 | REST API for closet management | in progress |
+| 2 | REST API for closet management | done |
 | 3 | MCP server: tools, safe query execution, rate limiting | in progress |
 | 4 | React + Vite frontend | in progress |
 | 5 | Docker + ECS Express Mode | not started |

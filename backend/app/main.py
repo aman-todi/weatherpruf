@@ -4,10 +4,12 @@ layer (spec §2)."""
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -56,9 +58,34 @@ def create_app() -> FastAPI:
     async def _wardrobe_error_handler(_: Request, exc: WardrobeError) -> JSONResponse:
         return JSONResponse(status_code=exc.http_status, content=exc.to_dict())
 
+    @application.exception_handler(RequestValidationError)
+    async def _request_validation_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+        """Render body/query validation failures in the same envelope as domain
+        errors, so a client only has to understand one error shape."""
+        problems = [
+            {
+                "field": ".".join(str(part) for part in error["loc"][1:]) or "body",
+                "message": error["msg"].removeprefix("Value error, "),
+            }
+            for error in exc.errors()
+        ]
+        summary = "; ".join(f"{p['field']}: {p['message']}" for p in problems)
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "validation_failed",
+                "message": summary or "the request body is not valid",
+                "details": {"problems": problems},
+            },
+        )
+
     @application.get("/health", tags=["meta"], summary="Liveness and dependency check")
     async def health() -> dict[str, object]:
-        return {"status": "ok", "environment": settings.environment, "database": await db.healthcheck()}
+        return {
+            "status": "ok",
+            "environment": settings.environment,
+            "database": await db.healthcheck(),
+        }
 
     _mount_rest_api(application)
     _mount_mcp(application)
@@ -66,27 +93,26 @@ def create_app() -> FastAPI:
 
 
 def _mount_rest_api(application: FastAPI) -> None:
-    """Ticket 2's routes. Optional so the MCP surface can boot without them."""
-    try:
-        from app.api import api_router
-    except ImportError:  # pragma: no cover - only while the API is unbuilt
-        logger.warning("REST API routes are not available")
-        return
+    """Ticket 2's routes, mounted under /api."""
+    from app.api import api_router
+
     application.include_router(api_router, prefix="/api")
 
 
 def _mount_mcp(application: FastAPI) -> None:
     """Ticket 3's FastMCP sub-app, mounted at /mcp.
 
-    ``build_mcp_app`` returns an ASGI app or ``None`` when FastMCP is not
-    installed, so the REST API still runs in environments that do not need the
-    connector (CI, the frontend's dev backend).
+    ``build_mcp_app`` returns an ASGI app, or ``None`` when the connector is
+    not configured, so the REST API still runs in environments that do not need
+    it. A missing *package* is tolerated the same way; a package that exists
+    but fails to import is a real bug and is left to raise, rather than being
+    swallowed into a warning that looks the same as "not installed".
     """
-    try:
-        from app.mcp_server import build_mcp_app
-    except ImportError:  # pragma: no cover - only while the MCP server is unbuilt
-        logger.warning("MCP server is not available")
+    if importlib.util.find_spec("app.mcp_server") is None:
+        logger.warning("app.mcp_server is not present; /mcp will not be served")
         return
+
+    from app.mcp_server import build_mcp_app
 
     mcp_app = build_mcp_app()
     if mcp_app is None:

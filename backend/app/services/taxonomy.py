@@ -33,7 +33,8 @@ async def load_categories(*, refresh: bool = False) -> list[Category]:
     """Every category with its field template, ordered for display."""
     global _cache, _cache_loaded_at
 
-    if not refresh and _cache is not None and (time.monotonic() - _cache_loaded_at) < _CACHE_TTL_SECONDS:
+    fresh = (time.monotonic() - _cache_loaded_at) < _CACHE_TTL_SECONDS
+    if not refresh and _cache is not None and fresh:
         return _cache
 
     async with app_pool().acquire() as conn:
@@ -96,11 +97,7 @@ async def get_category(category_id: str) -> Category:
 async def known_field_names() -> set[str]:
     """Every category-specific field name in use, for the query validator's
     ``fields->>'x'`` allowlist (spec §4.1 step 3)."""
-    return {
-        field.field_name
-        for category in await load_categories()
-        for field in category.fields
-    }
+    return {field.field_name for category in await load_categories() for field in category.fields}
 
 
 def _coerce(field: CategoryFieldDef, value: Any) -> Any:

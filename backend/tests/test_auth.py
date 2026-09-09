@@ -11,13 +11,16 @@ import pytest
 from app.auth import AuthError, TokenVerifier
 from app.config import Settings
 
+SECRET = "test-secret-at-least-32-bytes-long!!"
+WRONG_SECRET = "not-the-secret-but-also-32-bytes-ok"
+
 
 def _settings(**overrides) -> Settings:
-    base = {"supabase_url": "", "supabase_jwt_secret": "test-secret-at-least-32-bytes-long!!"}
+    base = {"supabase_url": "", "supabase_jwt_secret": SECRET}
     return Settings(**{**base, **overrides})
 
 
-def _token(secret: str = "test-secret-at-least-32-bytes-long!!", **claim_overrides) -> str:
+def _token(secret: str = SECRET, **claim_overrides) -> str:
     now = int(time.time())
     claims = {
         "sub": str(uuid.uuid4()),
@@ -44,7 +47,8 @@ def test_valid_session_token_resolves_to_a_user_id():
 
 def test_oauth_access_token_with_a_client_audience_is_accepted():
     """Claude.ai's OAuth access token may carry the client id as its audience.
-    The issuer, signature and expiry are the security controls, not `aud`."""
+    The issuer, signature and expiry are the security controls, not `aud`.
+    """
     verifier = TokenVerifier(_settings())
     user = verifier.verify(_token(aud="mcp-client-abc123"))
     assert user.user_id is not None
@@ -53,9 +57,9 @@ def test_oauth_access_token_with_a_client_audience_is_accepted():
 @pytest.mark.parametrize(
     ("description", "kwargs", "secret"),
     [
-        ("expired", {"exp": int(time.time()) - 60}, "test-secret-at-least-32-bytes-long!!"),
-        ("signed with the wrong secret", {}, "not-the-secret-but-also-32-bytes-ok"),
-        ("subject is not a uuid", {"sub": "definitely-not-a-uuid"}, "test-secret-at-least-32-bytes-long!!"),
+        ("expired", {"exp": int(time.time()) - 60}, SECRET),
+        ("signed with the wrong secret", {}, WRONG_SECRET),
+        ("subject is not a uuid", {"sub": "definitely-not-a-uuid"}, SECRET),
     ],
 )
 def test_bad_tokens_are_rejected(description, kwargs, secret):
@@ -66,7 +70,11 @@ def test_bad_tokens_are_rejected(description, kwargs, secret):
 
 def test_token_without_a_subject_is_rejected():
     now = int(time.time())
-    token = jwt.encode({"exp": now + 60, "role": "authenticated"}, "test-secret-at-least-32-bytes-long!!", algorithm="HS256")
+    token = jwt.encode(
+        {"exp": now + 60, "role": "authenticated"},
+        SECRET,
+        algorithm="HS256",
+    )
     with pytest.raises(AuthError):
         TokenVerifier(_settings()).verify(token)
 
