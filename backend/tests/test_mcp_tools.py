@@ -149,6 +149,50 @@ async def test_batch_add_items_description_is_the_one_from_the_spec(server) -> N
     assert "20 items per call" in description
 
 
+# --- OAuth discovery (spec §4: "authenticated via Supabase OAuth 2.1") ------
+
+
+async def test_oauth_discovery_is_reachable_where_it_is_advertised(monkeypatch) -> None:
+    """RFC 9728 puts the discovery document at the origin root, but the MCP
+    sub-app is mounted under /mcp and cannot serve a root path itself.
+
+    If these two drift apart the 401 challenge advertises a URL that 404s, and
+    a remote connector never starts its OAuth flow — a break that is invisible
+    until someone tries to connect Claude.ai. So this asserts the document is
+    actually served at the path the challenge names.
+    """
+    from app.main import create_app
+    from app.mcp_server import build_mcp_app
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "supabase_url", "https://example-project.supabase.co")
+    monkeypatch.setattr(settings, "public_base_url", "http://localhost:8000")
+
+    mcp_app = build_mcp_app()
+    assert mcp_app is not None
+    advertised = [route.path for route in mcp_app.well_known_routes]
+    assert advertised, "no discovery routes were exposed for the parent to publish"
+    assert any(
+        path.startswith("/.well-known/oauth-protected-resource") for path in advertised
+    ), advertised
+
+    # ...and the parent app actually publishes them at the root.
+    published = {getattr(route, "path", None) for route in create_app().routes}
+    for path in advertised:
+        assert path in published, f"{path} is advertised but not served at the root"
+
+
+async def test_no_authorization_server_is_advertised_without_supabase(monkeypatch) -> None:
+    """Local development has no authorization server to point at, and claiming
+    one that does not exist would be worse than claiming none."""
+    from app.mcp_server.auth import SupabaseTokenVerifier, build_auth_provider
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "supabase_url", "")
+    provider = build_auth_provider(settings)
+    assert isinstance(provider, SupabaseTokenVerifier)
+
+
 # --- get_closet_structure ---------------------------------------------------
 
 

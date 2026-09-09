@@ -121,5 +121,27 @@ def build_mcp_app():
     # own root; stateless_http keeps each call self-contained, which is what a
     # remote connector behind a load balancer wants.
     http_app = mcp.http_app(path="/", stateless_http=True)
-    logger.info("MCP server built; /mcp is served")
-    return _LifespanOnFirstRequest(http_app)
+
+    app = _LifespanOnFirstRequest(http_app)
+
+    # RFC 9728 puts a protected resource's discovery document at the *origin
+    # root* — /.well-known/oauth-protected-resource/mcp/ — not under the
+    # resource's own path. FastMCP registers it on this sub-app, which is
+    # mounted at /mcp, so as mounted it would only ever be reachable at
+    # /mcp/.well-known/..., while the 401 challenge correctly advertises the
+    # root URL. A connector follows the advertised URL, 404s, and never starts
+    # the OAuth flow.
+    #
+    # So the routes are handed to the parent to re-expose at the root. Kept as
+    # an attribute rather than a change to build_mcp_app's return type, so a
+    # caller that does not know about it still gets a working ASGI app.
+    app.well_known_routes = [
+        route
+        for route in http_app.routes
+        if str(getattr(route, "path", "")).startswith("/.well-known/")
+    ]
+    logger.info(
+        "MCP server built; /mcp is served, %d discovery route(s) to publish at the root",
+        len(app.well_known_routes),
+    )
+    return app

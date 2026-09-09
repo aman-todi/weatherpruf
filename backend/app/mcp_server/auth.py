@@ -84,6 +84,20 @@ def build_auth_provider(settings: Settings):
     ``scripts/make_test_token.py``) there is no authorization server to point
     at, so the bare verifier is used. Tokens are still verified identically;
     only discovery is missing, and there is nothing to discover.
+
+    The two URLs are deliberately different. ``base_url`` is the site root
+    because RFC 9728 well-known URIs are origin-rooted: the discovery document
+    lives at ``/.well-known/oauth-protected-resource/mcp/``, at the top of the
+    host, not under the resource's own path. ``resource_base_url`` is the
+    ``/mcp`` URL, which is the resource actually being protected — it is what
+    gets named as ``resource`` in that document and what supplies the ``/mcp``
+    segment the well-known path has appended to it.
+
+    Getting this wrong is invisible until a connector tries to authenticate:
+    the 401's ``WWW-Authenticate`` challenge points at the advertised URL, and
+    if the document is not served there the client 404s and the OAuth flow
+    never starts. ``app.main`` re-exposes these routes at the root for exactly
+    that reason — see ``build_mcp_app``.
     """
     verifier = SupabaseTokenVerifier(base_url=settings.public_base_url)
 
@@ -98,6 +112,7 @@ def build_auth_provider(settings: Settings):
         token_verifier=verifier,
         authorization_servers=[settings.token_issuer],
         base_url=settings.public_base_url,
+        resource_base_url=settings.mcp_url,
         resource_name="Wardrobe closet",
         resource_documentation=None,
     )
