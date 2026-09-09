@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     # with. Left empty on projects that have migrated to JWKS.
     supabase_jwt_secret: str = ""
 
+    # Audience to require on incoming tokens. Empty (the default) means the
+    # claim is not checked — see app/auth.py for why that is the safe default
+    # and docs/setup-supabase.md for how to tighten it once you can observe a
+    # real connector token.
+    expected_token_audience: str = ""
+
     # --- Database -----------------------------------------------------------
     # The application role. Full DML on the user-scoped tables; every request
     # runs inside `set local role authenticated` so RLS still applies.

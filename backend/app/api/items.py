@@ -22,6 +22,11 @@ from app.services import items as items_service
 router = APIRouter(tags=["items"])
 
 
+class TagCount(BaseModel):
+    tag: str
+    item_count: int
+
+
 class ItemListResponse(BaseModel):
     items: list[Item]
     total: int = Field(description="The user's whole closet count, ignoring any filter.")
@@ -48,6 +53,17 @@ async def list_items(
     # `total` is the closet size, not the filtered count — the UI uses it to
     # show how much of the 200-item cap is spent.
     return ItemListResponse(items=found, total=await items_service.count_items(user.user_id))
+
+
+@router.get(
+    "/tags",
+    response_model=list[TagCount],
+    summary="The caller's distinct tags, most-used first",
+)
+async def list_tags(user: CurrentUser) -> list[TagCount]:
+    """Backs the closet browser's tag filter. Tags have no registry table, so
+    this is derived from the items that carry them."""
+    return [TagCount(**row) for row in await items_service.list_tags(user.user_id)]
 
 
 @router.post(

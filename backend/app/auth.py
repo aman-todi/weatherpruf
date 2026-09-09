@@ -30,10 +30,21 @@ from app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-# Supabase stamps `authenticated` as the audience on session tokens. OAuth
-# access tokens issued to a connector may carry the client id instead, so the
-# audience is not treated as a security control — the issuer, signature and
-# expiry are.
+# Supabase stamps `authenticated` as the audience on session tokens, and
+# FastMCP's own Supabase provider expects the same on OAuth access tokens. The
+# audience is nonetheless NOT checked by default, for two reasons:
+#
+#   * It buys very little. Every token from a given Supabase project carries
+#     the same audience, so the claim cannot distinguish a token minted for
+#     this MCP server from one minted for a different server backed by the
+#     same project. Supabase does not implement RFC 8707 resource indicators,
+#     which is what would actually prevent that cross-server replay.
+#   * Getting it wrong fails closed on the connector path — the one path that
+#     is hardest to test before it is live.
+#
+# So the default is to rely on the controls that do carry weight: the
+# signature, the issuer, and the expiry. Set EXPECTED_TOKEN_AUDIENCE once you
+# have observed a real connector token and want the extra assertion.
 _ASYMMETRIC_ALGORITHMS = ["RS256", "ES256"]
 
 
@@ -75,7 +86,8 @@ class TokenVerifier:
         return self._jwk_client
 
     def _decode(self, token: str) -> dict[str, Any]:
-        options = {"require": ["exp", "sub"], "verify_aud": False}
+        audience = self._settings.expected_token_audience or None
+        options = {"require": ["exp", "sub"], "verify_aud": audience is not None}
         issuer = self._settings.token_issuer if self._settings.supabase_url else None
 
         header = jwt.get_unverified_header(token)
@@ -99,6 +111,7 @@ class TokenVerifier:
                 signing_key,
                 algorithms=_ASYMMETRIC_ALGORITHMS,
                 issuer=issuer,
+                audience=audience,
                 options=options,
             )
 
@@ -111,6 +124,7 @@ class TokenVerifier:
                 secret,
                 algorithms=["HS256"],
                 issuer=issuer,
+                audience=audience,
                 options=options,
             )
 

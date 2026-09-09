@@ -33,18 +33,124 @@ after that, `.github/workflows/deploy.yml` handles every deploy.
 aws ecr create-repository --repository-name weatherpruf-backend --region us-east-1
 ```
 
+Add a lifecycle policy while you are here, so untagged layers from failed
+builds do not accumulate forever:
+
+```bash
+aws ecr put-lifecycle-policy --repository-name weatherpruf-backend \
+  --lifecycle-policy-text '{
+    "rules": [{
+      "rulePriority": 1,
+      "description": "Expire untagged images after 7 days",
+      "selection": {"tagStatus": "untagged", "countType": "sinceImagePushed",
+                    "countUnit": "days", "countNumber": 7},
+      "action": {"type": "expire"}
+    }]
+  }'
+```
+
 ### 2. IAM roles
 
-Express Mode needs two roles, plus one for GitHub Actions to assume:
+Three roles. The first two are what Express Mode needs; the third is what
+GitHub Actions assumes.
 
-| Role | Purpose |
-|---|---|
-| **Task execution role** | Lets ECS pull the image from ECR, write logs to CloudWatch, and read the Secrets Manager secret below. Start from the AWS-managed `AmazonECSTaskExecutionRolePolicy` and add `secretsmanager:GetSecretValue` on your secret's ARN. |
-| **Infrastructure role** | Lets Express Mode create and manage the load balancer, target groups, security groups and scaling policies on your behalf. |
-| **GitHub Actions deploy role** | Trusts GitHub's OIDC provider for this repository. Needs ECR push, `ecs:CreateExpressGatewayService` / `ecs:UpdateExpressGatewayService` / `ecs:DescribeExpressGatewayService`, `ecs:RegisterTaskDefinition`, and `iam:PassRole` for the two roles above. |
+**Task execution role** — lets ECS pull the image, write logs, and read the one
+secret. Attach the AWS-managed `AmazonECSTaskExecutionRolePolicy`, plus this
+inline policy scoped to your secret alone (not `secretsmanager:*`):
 
-Use OIDC for the deploy role rather than storing long-lived AWS keys as
-repository secrets.
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "secretsmanager:GetSecretValue",
+    "Resource": "arn:aws:secretsmanager:us-east-1:<account>:secret:weatherpruf/backend-*"
+  }]
+}
+```
+
+The trailing `-*` is not sloppiness: Secrets Manager appends a random six-character
+suffix to every secret ARN, so an exact ARN would stop matching after a
+delete-and-recreate.
+
+**Infrastructure role** — lets Express Mode create and manage the load balancer,
+target groups, security groups and scaling policies on your behalf. Create it
+from the ECS console when you first create an Express Mode service; it attaches
+the current AWS-managed policy for the purpose, which is safer than a
+hand-written copy that will drift as the service evolves.
+
+**GitHub Actions deploy role** — trusts GitHub's OIDC provider, so no long-lived
+AWS keys are stored as repository secrets. Trust policy, with the repository
+condition pinned to *this* repository and the `main` branch:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Federated": "arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com"},
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:aman-todi/weatherpruf:ref:refs/heads/main"
+      }
+    }
+  }]
+}
+```
+
+Pin `sub` to the exact ref. A wildcard like `repo:aman-todi/weatherpruf:*` would
+let any branch or any pull request from a fork assume this role and deploy.
+
+Permissions policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["ecr:GetAuthorizationToken"],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage",
+        "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"
+      ],
+      "Resource": "arn:aws:ecr:us-east-1:<account>:repository/weatherpruf-backend"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:CreateExpressGatewayService", "ecs:UpdateExpressGatewayService",
+        "ecs:DescribeExpressGatewayService", "ecs:RegisterTaskDefinition",
+        "ecs:DescribeClusters", "ecs:DescribeServices", "ecs:CreateCluster",
+        "ecs:ListServiceDeployments", "ecs:DescribeServiceDeployments",
+        "ecs:TagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::<account>:role/weatherpruf-task-execution",
+        "arn:aws:iam::<account>:role/weatherpruf-infrastructure"
+      ]
+    }
+  ]
+}
+```
+
+`iam:PassRole` is the one to keep narrow — it is scoped to exactly the two roles
+this deploy is allowed to hand to ECS, so a compromised workflow cannot pass a
+more privileged role into a task it controls. `ecs:*` actions take `"*"` because
+the service ARN does not exist until the first create; tighten it to the service
+ARN after the first successful deploy if you want.
 
 ### 3. Secrets
 
@@ -119,6 +225,20 @@ the real Supabase project are **not** part of this pipeline — apply those
 yourself, before the deploy that depends on them.
 
 You can also run it by hand from the Actions tab (`workflow_dispatch`).
+
+## Logs and retention
+
+Express Mode creates the CloudWatch log group for you, and by default it never
+expires. Set a retention period after the first deploy so it does not bill
+forever:
+
+```bash
+aws logs put-retention-policy \
+  --log-group-name /ecs/weatherpruf-backend --retention-in-days 30
+```
+
+Do not log at DEBUG in production. `app/auth.py` logs rejected tokens at INFO
+with the reason but never the token itself; keep it that way if you extend it.
 
 ## Checking a deploy
 

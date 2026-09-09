@@ -168,6 +168,37 @@ async def test_filtering_by_category_and_tags(client, auth):
     assert filtered["total"] == 3
 
 
+async def test_tags_are_derived_from_items(client, auth):
+    """Tags have no registry table, so the tag list must follow the items --
+    including a tag ceasing to exist when the last item carrying it goes."""
+    assert (await client.get("/api/tags", headers=auth)).json() == []
+
+    first = await client.post(
+        "/api/items", headers=auth, json={"category": "tshirt", "tags": ["Summer", "gym"]}
+    )
+    await client.post("/api/items", headers=auth, json={"category": "shorts", "tags": ["summer"]})
+
+    assert (await client.get("/api/tags", headers=auth)).json() == [
+        {"tag": "summer", "item_count": 2},  # case-folded on write, so these are one tag
+        {"tag": "gym", "item_count": 1},
+    ]
+
+    await client.delete(f"/api/items/{first.json()['id']}", headers=auth)
+    assert (await client.get("/api/tags", headers=auth)).json() == [
+        {"tag": "summer", "item_count": 1}
+    ]
+
+
+async def test_tags_do_not_leak_between_users(client, user_id, other_user_id):
+    mine = {"Authorization": f"Bearer {_token(user_id)}"}
+    theirs = {"Authorization": f"Bearer {_token(other_user_id)}"}
+
+    await client.post("/api/items", headers=mine, json={"category": "hat", "tags": ["private"]})
+
+    assert (await client.get("/api/tags", headers=theirs)).json() == []
+    assert [t["tag"] for t in (await client.get("/api/tags", headers=mine)).json()] == ["private"]
+
+
 async def test_items_are_scoped_to_their_owner(client, user_id, other_user_id):
     mine = {"Authorization": f"Bearer {_token(user_id)}"}
     theirs = {"Authorization": f"Bearer {_token(other_user_id)}"}

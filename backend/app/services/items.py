@@ -258,3 +258,24 @@ async def delete_item(user_id: UUID, item_id: UUID) -> None:
         )
     if deleted is None:
         raise NotFoundError(f"No item with id {item_id} in your closet.", item_id=str(item_id))
+
+
+async def list_tags(user_id: UUID) -> list[dict[str, Any]]:
+    """The user's distinct tags with usage counts, most-used first.
+
+    Tags are denormalised onto each item with no registry table (spec §0), so
+    "the user's tags" is a derived fact rather than a stored one. Deriving it
+    keeps a single source of truth — an item's tags — and means a tag stops
+    existing the moment nothing carries it, with no orphan rows to clean up.
+    The cost is that this is a scan, which is fine against a 200-item cap.
+    """
+    async with rls_transaction(user_id) as conn:
+        rows = await conn.fetch(
+            """
+            select tag, count(*) as item_count
+            from public.items, unnest(tags) as tag
+            group by tag
+            order by item_count desc, tag
+            """
+        )
+    return [{"tag": row["tag"], "item_count": row["item_count"]} for row in rows]

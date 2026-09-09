@@ -97,6 +97,23 @@ def test_hs256_token_rejected_when_no_secret_is_configured():
         verifier.verify(_token())
 
 
+def test_audience_is_not_checked_by_default():
+    """The default accepts any audience on purpose: the claim cannot tell a
+    token minted for this server from one minted for another server on the
+    same Supabase project, and failing closed here breaks the connector path."""
+    verifier = TokenVerifier(_settings())
+    assert verifier.verify(_token(aud="something-else")).user_id is not None
+
+
+def test_audience_is_enforced_once_configured():
+    verifier = TokenVerifier(_settings(expected_token_audience="authenticated"))
+
+    assert verifier.verify(_token(aud="authenticated")).user_id is not None
+
+    with pytest.raises(AuthError):
+        verifier.verify(_token(aud="some-other-client"))
+
+
 def test_issuer_is_checked_when_supabase_url_is_set():
     settings = _settings(supabase_url="https://project.supabase.co")
     verifier = TokenVerifier(settings)

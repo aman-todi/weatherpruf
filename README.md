@@ -102,12 +102,25 @@ tags — including the differentiating details the assistant is meant to notice,
 like `floral`, `multi-color`, and notes about what actually keeps rain out.
 Enough breadth for filtering demos to mean something.
 
-## Deployment
+## Going live
 
-See [`infra/README.md`](infra/README.md). One image serves both the REST API
-and the MCP sub-app, deployed as an ECS Express Mode service by
-`.github/workflows/deploy.yml`. Read the caveat at the top of that file about
-what has and has not been verified.
+Two runbooks cover the manual plumbing — the parts that need your credentials
+and cannot be done by a pipeline. Do them in this order:
+
+1. **[`docs/setup-supabase.md`](docs/setup-supabase.md)** — create the project,
+   apply the migrations, give the read-only role a password, switch JWT signing
+   to asymmetric keys, enable the OAuth 2.1 server with Dynamic Client
+   Registration, and configure magic-link redirect URLs. Ends with a table of
+   which value goes into which environment variable.
+2. **[`infra/README.md`](infra/README.md)** — the ECR repository, the three IAM
+   roles (with least-privilege policy documents), the Secrets Manager entry, and
+   the repository secrets and variables the deploy workflow reads. One image
+   serves both the REST API and the MCP sub-app, deployed as an ECS Express Mode
+   service by `.github/workflows/deploy.yml`.
+
+Both files open with a note on what was verified and what could not be, from an
+environment where `supabase.com`, `docs.aws.amazon.com` and Docker Hub are all
+blocked. Read those notes before the first deploy rather than after.
 
 ## Against a real Supabase project
 
@@ -135,6 +148,7 @@ the boundary.
 | `SUPABASE_URL` | Project URL. Derives the JWKS endpoint and the expected token issuer. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Used only by the account-deletion flow, to delete the Supabase auth user. |
 | `SUPABASE_JWT_SECRET` | Legacy HS256 project secret. Also what `make_test_token.py` signs with locally. |
+| `EXPECTED_TOKEN_AUDIENCE` | Optional. Unset means the `aud` claim is not checked — see `app/auth.py` for why that is the default. |
 | `PUBLIC_BASE_URL` | Public origin; `/mcp` is appended to give users the connector URL. |
 | `CORS_ALLOW_ORIGINS` | Comma-separated origins for the web app. |
 | `MAX_ITEMS_PER_USER` | Closet cap. Default 200. |
@@ -148,6 +162,7 @@ All routes are under `/api` and require `Authorization: Bearer <supabase access 
 |---|---|---|
 | `GET` | `/api/categories` | Every category with its field template — drives the dynamic form. |
 | `GET` | `/api/items` | Filter with `category`, repeatable `tags` (AND), `limit`, `offset`. Returns `{items, total}`, where `total` is the whole closet. |
+| `GET` | `/api/tags` | The caller's distinct tags with counts, most-used first. Derived from the items that carry them — tags have no registry table. |
 | `POST` | `/api/items` | 201 with the created item. |
 | `GET` `PATCH` `DELETE` | `/api/items/{id}` | `PATCH` is partial; `DELETE` returns 204. |
 | `GET` `PUT` | `/api/profile` | Never 404s — a user with no row gets the defaults. |
