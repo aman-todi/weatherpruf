@@ -121,5 +121,13 @@ def _mount_mcp(application: FastAPI) -> None:
     application.mount("/mcp", mcp_app)
     logger.info("mounted MCP sub-app at /mcp")
 
+    # RFC 9728 requires a protected resource's discovery document to live at the
+    # origin root (/.well-known/oauth-protected-resource/mcp/), which a sub-app
+    # mounted under /mcp cannot serve. Without this, the 401 challenge points at
+    # a URL that 404s and a remote connector never starts its OAuth flow.
+    for route in getattr(mcp_app, "well_known_routes", []):
+        application.router.routes.append(route)
+        logger.info("published OAuth discovery route at %s", route.path)
+
 
 app = create_app()
