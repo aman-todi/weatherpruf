@@ -8,7 +8,7 @@
 # separately. This container is the thing Claude.ai's connector talks to.
 
 # ---------------------------------------------------------------------------
-# Builder: resolve dependencies into a self-contained virtualenv.
+# Builder: install the app and its dependencies into a self-contained venv.
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim AS builder
 
@@ -18,8 +18,10 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 
 WORKDIR /build
 
-# Copy the dependency manifest on its own first, so the (slow) install layer is
-# cached until the dependencies themselves actually change.
+# The build backend needs both the manifest and the package directory present,
+# so a change to any source file does re-run the dependency install. That is
+# the honest trade for not maintaining a second, drift-prone requirements.txt;
+# the install is small enough that it is not worth a lockfile here.
 COPY backend/pyproject.toml ./
 COPY backend/app ./app
 
@@ -37,18 +39,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
     PORT=8000
 
-# curl is here for the container health check, which the load balancer and ECS
+# curl is here for the container health check, which ECS and the load balancer
 # both use to decide whether a task is serving.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 app
 
-COPY --from=builder /opt/venv /opt/venv
+# The venv carries the installed `app` package, so there is no second copy of
+# the source in the image and no ambiguity about which one is imported.
+COPY --from=builder --chown=root:root /opt/venv /opt/venv
 
 WORKDIR /srv
-COPY --chown=app:app backend/app ./app
-
 USER app
 EXPOSE 8000
 
@@ -57,4 +59,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # One worker: traffic is single-digit concurrent users (spec §0), and a single
 # process keeps the taxonomy cache and both connection pools to one copy each.
+# --proxy-headers so the app sees the scheme and client address the Express
+# Mode load balancer forwarded, rather than the load balancer's own.
 CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers 1 --proxy-headers --forwarded-allow-ips '*'"]

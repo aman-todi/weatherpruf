@@ -7,14 +7,20 @@ an image plus two IAM roles — so there is no task definition or service
 definition checked in here. The one-time setup below is what you do by hand;
 after that, `.github/workflows/deploy.yml` handles every deploy.
 
-> **Verified how far?** The Dockerfile has not been built in this repository's
-> development environment — Docker Hub's blob CDN is blocked by its network
-> egress policy, so no base image can be pulled. Its contents are consistent
-> with the app as it actually runs (the same `pyproject.toml` install and the
-> same uvicorn entrypoint are exercised locally), but treat the first
-> `docker build` as unproven until you run it. The same caveat applies to the
-> AWS steps: `docs.aws.amazon.com` is also blocked from that environment, so
-> the Express Mode specifics here follow the official
+> **Verified how far?**
+>
+> `docker build` has never been run against this Dockerfile: Docker Hub's blob
+> CDN is blocked by the development environment's network egress policy, so no
+> base image can be pulled there. What *was* verified is the part that actually
+> tends to break — the build's install step, reproduced outside Docker in a
+> clean virtualenv from nothing but `backend/pyproject.toml` and `backend/app`.
+> It installs, and `app.main` then imports from `site-packages` (not from a
+> stray source copy) with all eight routes registered. So the layer that
+> remains unproven is the base image, `apt-get`, and the `USER`/`HEALTHCHECK`
+> plumbing — not the application build. Run it once before trusting it.
+>
+> The AWS steps are likewise second-hand: `docs.aws.amazon.com` is blocked from
+> that environment too, so the Express Mode specifics here follow the official
 > [`aws-actions/amazon-ecs-deploy-express-service`](https://github.com/aws-actions/amazon-ecs-deploy-express-service)
 > action's documented inputs rather than a reading of the AWS docs. Check the
 > current docs before the first deploy.
