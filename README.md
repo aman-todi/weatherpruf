@@ -185,7 +185,7 @@ Errors — domain and request-validation alike — come back in one envelope:
 |---|---|---|
 | 1 | Schema, RLS, read-only role, FastAPI skeleton, shared services | done |
 | 2 | REST API for closet management | done |
-| 3 | MCP server: tools, safe query execution, rate limiting | in progress |
-| 4 | React + Vite frontend | in progress |
+| 3 | MCP server: tools, safe query execution, rate limiting | done — the Claude.ai OAuth test needs a deployed instance |
+| 4 | React + Vite frontend | done — the magic-link flow needs a real Supabase project |
 | 5 | Docker + ECS Express Mode | scaffolded — see `infra/README.md` for what is unverified |
 | 6 | End-to-end verification and polish | seed script done; the Claude.ai smoke test needs a deployed instance |

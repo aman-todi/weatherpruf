@@ -229,9 +229,7 @@ async def test_returns_tags_colors_and_notes(stocked_closet: uuid.UUID) -> None:
 
 
 async def test_json_field_access_runs(stocked_closet: uuid.UUID) -> None:
-    result = await safe_query.run_where_clause(
-        stocked_closet, "fields->>'shoe_type' = 'boot'"
-    )
+    result = await safe_query.run_where_clause(stocked_closet, "fields->>'shoe_type' = 'boot'")
     assert result["count"] == 1
 
 
@@ -366,3 +364,45 @@ async def test_closet_summary_of_an_empty_closet(user_id: uuid.UUID) -> None:
 async def _count_all_items() -> int:
     async with db.app_pool().acquire() as conn:
         return await conn.fetchval("select count(*) from public.items")
+
+
+class TestIdentifierCasing:
+    """Postgres folds unquoted identifiers to lower case before resolving them,
+    so a predicate written in the SQL-keyword-uppercase style a model may well
+    produce must not be rejected as an unknown column."""
+
+    @pytest.mark.parametrize(
+        "clause",
+        [
+            "CATEGORY = 'jacket'",
+            "Category = 'jacket'",
+            "WARMTH_RATING >= 4",
+            "category = 'coat' AND Brand IS NOT NULL",
+            "FIELDS->>'shoe_type' = 'boot'",
+        ],
+    )
+    def test_unquoted_identifiers_are_case_insensitive(self, clause):
+        # Returns without raising; the generated SQL names the real column.
+        validated = validate(clause)
+        assert "CATEGORY" not in validated
+        assert "FIELDS" not in validated
+
+    @pytest.mark.parametrize(
+        "clause",
+        [
+            '"User_Id" is not null',
+            '"user_id" is not null',
+            "\"CREATED_AT\" > '2020-01-01'",
+        ],
+    )
+    def test_quoted_identifiers_keep_their_case_and_are_still_rejected(self, clause):
+        """Case folding must not become a way to reach a column that is off
+        the allowlist."""
+        with pytest.raises(UnsafeQueryError):
+            validate(clause)
+
+    def test_case_folding_does_not_admit_a_disallowed_column(self):
+        with pytest.raises(UnsafeQueryError):
+            validate("USER_ID is not null")
+        with pytest.raises(UnsafeQueryError):
+            validate("Created_At is not null")

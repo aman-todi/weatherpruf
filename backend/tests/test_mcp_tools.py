@@ -172,9 +172,9 @@ async def test_oauth_discovery_is_reachable_where_it_is_advertised(monkeypatch) 
     assert mcp_app is not None
     advertised = [route.path for route in mcp_app.well_known_routes]
     assert advertised, "no discovery routes were exposed for the parent to publish"
-    assert any(
-        path.startswith("/.well-known/oauth-protected-resource") for path in advertised
-    ), advertised
+    assert any(path.startswith("/.well-known/oauth-protected-resource") for path in advertised), (
+        advertised
+    )
 
     # ...and the parent app actually publishes them at the root.
     published = {getattr(route, "path", None) for route in create_app().routes}
@@ -538,9 +538,7 @@ async def test_the_daily_cap_triggers(call, reset_quota, user_id, monkeypatch) -
         monkeypatch.undo()
 
 
-async def test_the_cap_stops_the_tool_body_running(
-    call, reset_quota, user_id, monkeypatch
-) -> None:
+async def test_the_cap_stops_the_tool_body_running(call, reset_quota, user_id, monkeypatch) -> None:
     """Spec §5 says the check runs *before* the tool body. A write refused by
     the cap must not have written anything."""
     monkeypatch.setattr(get_settings(), "daily_mcp_call_limit", 1)

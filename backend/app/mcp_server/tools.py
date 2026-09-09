@@ -76,9 +76,7 @@ def closet_tool(func):
             # A model the assistant supplied did not fit its schema. Worth
             # returning rather than raising: the field-level detail is what
             # lets it correct the call instead of retrying the same thing.
-            return ValidationError(
-                _summarise_pydantic(exc), issues=_pydantic_issues(exc)
-            ).to_dict()
+            return ValidationError(_summarise_pydantic(exc), issues=_pydantic_issues(exc)).to_dict()
 
         settings = get_settings()
         if isinstance(result, dict):
@@ -87,9 +85,7 @@ def closet_tool(func):
                 {
                     "calls_used_today": calls_used,
                     "daily_limit": settings.daily_mcp_call_limit,
-                    "calls_remaining_today": max(
-                        0, settings.daily_mcp_call_limit - calls_used
-                    ),
+                    "calls_remaining_today": max(0, settings.daily_mcp_call_limit - calls_used),
                 },
             )
         return result
@@ -385,9 +381,7 @@ def register_tools(mcp: FastMCP) -> None:
             if value is not None
         }
         if not supplied:
-            raise ValidationError(
-                "No changes were supplied. Pass at least one field to update."
-            )
+            raise ValidationError("No changes were supplied. Pass at least one field to update.")
 
         item = await items_service.update_item(user_id, parsed_id, ItemUpdate(**supplied))
         return {"status": "updated", "item": _item_dict(item)}

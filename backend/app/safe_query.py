@@ -52,6 +52,7 @@ from uuid import UUID
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
 
 from app.config import get_settings
 from app.db import readonly_transaction
@@ -271,21 +272,15 @@ def _check_json_access(node: exp.Expression, known_fields: set[str]) -> None:
             if isinstance(part, exp.JSONPathRoot):
                 continue
             if not isinstance(part, exp.JSONPathKey):
-                raise _reject(
-                    f"only a simple '{JSON_COLUMN}->>''field_name''' access is accepted."
-                )
+                raise _reject(f"only a simple '{JSON_COLUMN}->>''field_name''' access is accepted.")
             keys.append(str(part.this))
     elif isinstance(path, exp.Literal) and path.is_string:
         keys.append(path.this)
     else:
-        raise _reject(
-            f"the key in a '{JSON_COLUMN}' access must be a literal field name."
-        )
+        raise _reject(f"the key in a '{JSON_COLUMN}' access must be a literal field name.")
 
     if len(keys) != 1:
-        raise _reject(
-            f"only a single-level '{JSON_COLUMN}->>''field_name''' access is accepted."
-        )
+        raise _reject(f"only a single-level '{JSON_COLUMN}->>''field_name''' access is accepted.")
 
     key = keys[0]
     if key not in known_fields:
@@ -386,8 +381,7 @@ def _prescan(where_clause: str) -> str:
             depth += 1
             if depth > MAX_NESTING_DEPTH:
                 raise _reject(
-                    "The where_clause nests parentheses more than "
-                    f"{MAX_NESTING_DEPTH} deep.",
+                    f"The where_clause nests parentheses more than {MAX_NESTING_DEPTH} deep.",
                     limit=MAX_NESTING_DEPTH,
                 )
         elif char == ")":
@@ -427,6 +421,15 @@ def validate_where_clause(where_clause: str, known_fields: set[str]) -> str:
 
     if tree is None:
         raise _reject("The where_clause did not parse to an expression.")
+
+    # Fold unquoted identifiers to lower case, exactly as Postgres itself would
+    # before resolving them. Without this, `CATEGORY = 'jacket'` -- valid SQL,
+    # and a plausible thing for a model writing SQL-shaped text to produce --
+    # is rejected as an unknown column, which costs the user a call out of a
+    # tight daily budget for a predicate that was never wrong. Quoted
+    # identifiers keep their case, also as Postgres would, so `"User_Id"` is
+    # still not a column name any allowlist matches.
+    tree = normalize_identifiers(tree, dialect="postgres")
 
     # sqlglot.parse_one on multiple statements keeps only the first, so confirm
     # the input really was one expression rather than trusting the parser to

@@ -86,6 +86,13 @@ fields->>'key' ALWAYS RETURNS TEXT. Compare it to a quoted string:
 fields->>'warmth' = '3', never fields->>'warmth' = 3. The key must be a real
 field name from the category templates above; an unknown key is rejected.
 
+Because it returns text, < <= > >= on a fields->> value compare ALPHABETICALLY,
+not numerically -- fields->>'inseam_inches' > '30' is true for '9'. So on a
+number-typed field use = or IN with exact values, and do the ranking yourself
+from the returned items. Casts are rejected, so there is no ::numeric escape
+hatch. The one numeric column you CAN order and range-compare properly is
+warmth_rating, which is a real integer column.
+
 EXAMPLES
 
   category IN ('jacket','coat') AND warmth_rating >= 4
