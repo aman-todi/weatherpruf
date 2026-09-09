@@ -65,6 +65,16 @@ export interface Category {
   fields: CategoryFieldDef[];
 }
 
+/**
+ * One entry from `GET /api/tags` — the caller's distinct tags, most-used
+ * first. Tags live denormalised on each item with no registry table, so this
+ * is the only complete view of which tags a user actually has.
+ */
+export interface TagCount {
+  tag: string;
+  item_count: number;
+}
+
 export interface ItemsPage {
   items: Item[];
   /** The user's *whole closet* count — not the count matching the filters. */

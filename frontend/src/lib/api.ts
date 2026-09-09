@@ -16,6 +16,7 @@ import type {
   ItemUpdate,
   ItemsPage,
   Me,
+  TagCount,
   UserProfile,
   UserProfileUpdate,
 } from './types';
@@ -161,6 +162,8 @@ export const api = {
         offset: params.offset ?? null,
       },
     }),
+
+  tags: () => request<TagCount[]>('/tags'),
 
   getItem: (id: string) => request<Item>(`/items/${id}`),
 

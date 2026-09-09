@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, errorMessage, isApiError } from '../lib/api';
 import { sortCategories, useCategories } from '../hooks/useCategories';
 import { useMe } from '../hooks/useMe';
+import { useTags } from '../hooks/useTags';
 import type { Item } from '../lib/types';
 import { Banner } from '../components/Banner';
 import { ItemCard } from '../components/ItemCard';
@@ -22,6 +23,7 @@ export function ClosetPage() {
     [categories],
   );
   const { me, refresh: refreshMe } = useMe();
+  const { tags: knownTags, refresh: refreshTags } = useTags();
 
   const [categoryFilter, setCategoryFilter] = useState('');
   const [tagFilters, setTagFilters] = useState<string[]>([]);
@@ -90,10 +92,14 @@ export function ClosetPage() {
     }
   };
 
-  /** Tags seen on what is loaded — enough to make the filter input useful. */
+  /**
+   * The user's whole tag vocabulary when the backend can supply it; otherwise
+   * the tags on the items currently loaded, which is all a paginated list can
+   * tell us.
+   */
   const tagSuggestions = useMemo(
-    () => [...new Set(items.flatMap((item) => item.tags))].sort(),
-    [items],
+    () => knownTags ?? [...new Set(items.flatMap((item) => item.tags))].sort(),
+    [knownTags, items],
   );
 
   const deleteItem = async (item: Item) => {
@@ -103,6 +109,8 @@ export function ClosetPage() {
       setTotal((current) => Math.max(0, current - 1));
       setNotice('Item deleted.');
       refreshMe();
+      // A tag drops out of the vocabulary when its last item goes.
+      refreshTags();
     } catch (cause) {
       // A 404 means it is already gone — treat that as success, not an error.
       if (isApiError(cause) && cause.code === 'not_found') {
@@ -244,6 +252,7 @@ export function ClosetPage() {
               // item out of the current category/tag filter.
               reload();
               refreshMe();
+              refreshTags();
             }}
           />
         </Modal>
