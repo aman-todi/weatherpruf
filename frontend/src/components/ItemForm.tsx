@@ -159,9 +159,14 @@ export function ItemForm({
 
       <label className="field">
         <span className="field__label">
-          Category <span className="field__required">required</span>
+          Category{' '}
+          {/* Hidden from the accessibility tree: `required` on the control says
+              the same thing, and otherwise it lands in the control's name. */}
+          <span className="field__required" aria-hidden>
+            required
+          </span>
         </span>
-        <select value={category} onChange={(event) => changeCategory(event.target.value)}>
+        <select required value={category} onChange={(event) => changeCategory(event.target.value)}>
           <option value="">Choose a category…</option>
           {categories.map((entry) => (
             <option key={entry.id} value={entry.id}>
@@ -227,8 +232,8 @@ export function ItemForm({
         <span className="field__label">Tags</span>
         <TagInput value={tags} onChange={setTags} suggestions={tagSuggestions} />
         <span className="field__hint">
-          Free-form labels the assistant can filter on — <code>gym</code>, <code>date-night</code>,
-          <code> rainy-day</code>.
+          Free-form labels the assistant can filter on — <code>gym</code>, <code>date-night</code>,{' '}
+          <code>rainy-day</code>.
         </span>
       </div>
 
@@ -285,7 +290,11 @@ function CategoryField({
   const label = (
     <span className="field__label">
       {humanize(def.field_name)}
-      {def.required && <span className="field__required">required</span>}
+      {def.required && (
+        <span className="field__required" aria-hidden>
+          required
+        </span>
+      )}
     </span>
   );
 
@@ -307,6 +316,7 @@ function CategoryField({
       {label}
       {def.field_type === 'enum' ? (
         <select
+          required={def.required}
           value={typeof value === 'string' ? value : ''}
           onChange={(event) => onChange(event.target.value)}
         >
@@ -320,6 +330,7 @@ function CategoryField({
       ) : (
         <input
           type={def.field_type === 'number' ? 'number' : 'text'}
+          required={def.required}
           value={typeof value === 'string' ? value : ''}
           step="any"
           onChange={(event) => onChange(event.target.value)}
