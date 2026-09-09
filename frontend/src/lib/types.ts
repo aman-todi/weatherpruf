@@ -80,7 +80,8 @@ export type UserProfileUpdate = Partial<UserProfile>;
 
 export interface Me {
   user_id: string;
-  email: string;
+  /** Nullable: the backend reads it off the token, which need not carry one. */
+  email: string | null;
   item_count: number;
   item_limit: number;
   calls_used_today: number;
