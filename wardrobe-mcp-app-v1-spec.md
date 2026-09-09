@@ -1,8 +1,53 @@
 # Wardrobe MCP App — v1 Build Spec
 
-*Revision 3 — adds the connector-vs-plugin reasoning as a new §1, plus the earlier revision's
-category/tooling/limits changes. Superseded sections from earlier drafts are not shown separately;
-this document is the current source of truth.*
+*Revision 4 — folds in the decisions made while Tickets 1–6 were actually built. Revision 3 added
+the connector-vs-plugin reasoning as §1; this revision changes the daily call cap, records what the
+implementation found out that the design could not have known, and marks the build status of each
+ticket. Superseded sections from earlier drafts are not shown separately; this document remains the
+current source of truth.*
+
+### What changed in Revision 4, and why
+
+Everything here came out of building the thing rather than designing it. Grouped by how much it
+should change your mental model.
+
+**Changed a stated decision**
+
+- **Daily call cap raised from 10/day to 50/day** (§5). Revision 3 flagged 10 as tight and said to
+  raise it if that proved true in use. It did: one end-to-end walkthrough spends almost the whole
+  budget. Still one environment variable.
+- **FastMCP v4, not v3** (§0). v4 is the current major. The mounted-ASGI-sub-app pattern the
+  architecture depends on is unchanged between them.
+
+**Found a hole the design had left open**
+
+- **`closet_query_view` must not be granted to `authenticated`** (§3). The view runs with its
+  owner's privileges, so RLS on `items` does *not* apply through it. Exposing it to PostgREST
+  would have been a cross-user read — the exact thing the rest of the design is careful about.
+  Only the read-only role may select it, and only ever with a bound `user_id`.
+- **Identifier case folding in the query validator** (§4.1). `CATEGORY = 'jacket'` is valid SQL —
+  Postgres folds unquoted identifiers to lower case — but a naive allowlist rejects it as an
+  unknown column, costing the user a call for a predicate that was never wrong.
+- **`fields->>'key'` orders alphabetically, not numerically** (§4.1). The field template advertises
+  `number`-typed fields, but jsonb extraction returns text and casts are rejected, so
+  `fields->>'inseam_inches' > '30'` is true for `'9'`. A silent wrong answer, not an error.
+
+**Added something the design did not call for**
+
+- **A shared service layer** between the REST and MCP surfaces (§2). Not in the original ticket
+  split, and the single most useful structural decision in the build: the 200-item cap, the colour
+  limit and category-field validation are enforced once, so the two surfaces cannot drift.
+- **`GET /api/tags`** (§6). Tags have no registry table by design, which left the web app with no
+  way to know which tags a user has. Derived from the items that carry them.
+- **A unified error envelope** across both surfaces (§7, Ticket 2).
+
+**Learned about the platform**
+
+- **ECS Express Mode already serves HTTPS**, so the custom domain in Ticket 5 is polish, not the
+  prerequisite it was written as (§7).
+- **Supabase does not implement RFC 8707 resource indicators** (§5), so a token minted for another
+  MCP server on the same project would validate here. A non-issue for a single-app project, but it
+  belongs in writing.
 
 ## 0. Background
 
@@ -30,8 +75,10 @@ backend to CRUD plus one safe query-execution path.
   alike. This still relies on Dynamic Client Registration (the now-deprecated-but-functional MCP
   client onboarding path) rather than Client ID Metadata Documents — a known, accepted limitation.
 - **Database**: Supabase Postgres.
-- **MCP server**: FastMCP (v3), mounted directly inside the FastAPI app as an ASGI sub-application
-  — one process, one deploy, shared auth and data-access layer between REST and MCP.
+- **MCP server**: FastMCP (v4 — Revision 3 said v3; v4 is the current major and the
+  mounted-sub-app pattern is unchanged), mounted directly inside the FastAPI app as an ASGI
+  sub-application — one process, one deploy, shared auth and data-access layer between REST and
+  MCP.
 - **Compute**: AWS ECS Express Mode (current AWS-recommended replacement for App Runner, which
   stopped accepting new customers as of April 30, 2026).
 - **Frontend**: React + Vite.
@@ -51,14 +98,24 @@ backend to CRUD plus one safe query-execution path.
 - No multi-tenant / team accounts.
 - No Claude plugin/skill bundle — see §1.
 
-### A note on one ambiguous piece of earlier feedback
+### A note on one ambiguous piece of earlier feedback — **confirmed in Revision 4**
 
 The instruction "I don't think we need user 'tags', name and other info can probably go into one
 user/user_profile table" is read here as: **drop the separate normalized `tags` + `item_tags`
 tables** — tags become a plain denormalized array directly on each item, no per-user tag registry.
 The `user_profile` table remains the single place for account-level info (`home_location`,
-`unit_preference`); nothing else is added to it since no other specific field was named. Flag if
-this misreads the intent.
+`unit_preference`); nothing else is added to it since no other specific field was named.
+
+This reading was confirmed during the build. Tags live on the item; items are RLS-scoped to their
+owner; so tags are per-user transitively without a registry table. Two consequences fell out of it,
+both handled rather than merely noted:
+
+- There is no canonical list of a user's own tags, which the closet browser's tag filter needs.
+  `GET /api/tags` derives it from the items carrying each tag (§6). Deriving rather than storing
+  keeps one source of truth and means a tag stops existing the moment nothing carries it, with no
+  orphan rows to clean up.
+- Without a registry there is nothing to reconcile typo variants against, so tags are trimmed,
+  lower-cased and de-duplicated on write. `Date-Night` and `date-night` are one tag.
 
 ---
 
@@ -145,6 +202,19 @@ No external weather API integration in this app at all, and no Claude plugin —
 §0/§1. Both the REST API and MCP tools sit behind the same FastAPI process, ECS Express Mode
 service, and Supabase project.
 
+**A shared service layer sits under both surfaces** (added in Revision 4; not in the original
+ticket split). Neither the REST routes nor the MCP tools write their own SQL against the
+user-scoped tables — both call the same functions in `backend/app/services/`, which own item CRUD,
+category-field validation, the profile, and the usage counter. The rules that must hold identically
+however a change arrives — the 200-item cap, the five-colour limit, field validation, RLS scoping —
+are therefore enforced in exactly one place. Ticket 3 anticipated the need ("reusing Ticket 2's
+data-access functions where possible... coordinate on shared service functions"); building the
+layer up front in Ticket 1 turned that coordination problem into a non-issue and is what let
+Tickets 2 and 3 genuinely run in parallel.
+
+The frontend is **not** in the same container: it is a static Vite build served separately, while
+the image holds only the FastAPI app serving REST and `/mcp`.
+
 ---
 
 ## 3. Data model
@@ -213,6 +283,14 @@ columns on `items` directly)
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 
+Constraints as built (Revision 4): the colour cap is a check constraint as specified, and
+`warmth_rating` (1–5), `formality` (the four values above) and `fields` (must be a JSON object) are
+checked in the database as well as in the application. `updated_at` is maintained by a trigger
+rather than by application code, so it cannot be forgotten on a write path added later.
+`category_field_defs` additionally carries `unique (category_id, field_name)` and a check that
+`allowed_values` is populated for `enum` fields and empty for every other type — which is what lets
+the seed migration be re-run to extend the taxonomy without duplicating rows.
+
 **`user_profile`**
 | column | type | notes |
 |---|---|---|
@@ -232,6 +310,12 @@ RLS policy shape: every table scoped by `user_id` restricts rows to `auth.uid() 
 identically whether the request came in via the web app's session JWT or Claude.ai's OAuth access
 token.
 
+One deliberate asymmetry (Revision 4): `usage_counters` is *readable* by its owner but has no
+insert or update policy at all, so a user cannot reset their own daily quota. The counter is
+written only by the server, as the application role, with the statement scoped by `user_id`.
+`categories` and `category_field_defs` are readable by any signed-in user and writable by nobody
+but the service role.
+
 **`closet_query_view`** — a real Postgres view, the *only* thing the safe query tool (§4) is
 allowed to select from:
 
@@ -246,12 +330,44 @@ A dedicated **read-only Postgres role** is granted `SELECT` on `closet_query_vie
 else, not even other columns of `items` directly, and no write privileges of any kind. This role,
 not the AST validation described in §4, is the actual security backstop.
 
+**The view is not granted to `authenticated`, and this matters more than it looks** (Revision 4).
+The view is not `security_invoker`, so it executes with its owner's privileges and RLS on `items`
+does **not** apply through it. Exposing it to PostgREST — which is what granting it to
+`authenticated` would do — would have handed every signed-in user every other user's closet. Only
+`wardrobe_readonly` may select it, and every statement that does binds `user_id` as a parameter.
+That bound parameter, not RLS, is what keeps users apart on the query path; the design should be
+read with that in mind wherever it says "RLS protects both surfaces", because on this one path it
+does not.
+
+Two further hardening decisions on the role, neither of which the design called for:
+
+- It is created **without a password**, so no credential is committed. An operator sets one after
+  applying the migration (`alter role wardrobe_readonly with login password '...'`), and its
+  connection string is kept as a secret separate from the application role's.
+- It carries `default_transaction_read_only`, a `statement_timeout` and an
+  `idle_in_transaction_session_timeout` as *role-level* settings, so the guarantees hold even for a
+  connection the application forgot to configure. The application re-asserts the first two per
+  transaction as well; belt and braces, on the component where that is warranted.
+
+Verifying this is not optional and not an assumption: `db/tests/verify_readonly_role.sql` asserts
+eight statements are each refused (insert, update and delete through both the view and `items`
+directly; select on `items`, `user_profile` and `auth.users`; and `create table`), and runs against
+a real Supabase project as readily as against a local one.
+
 ---
 
 ## 4. MCP tool contract
 
-Eight tools, mounted via FastMCP at `/mcp`, authenticated via Supabase OAuth 2.1 (bearer token
-validated against Supabase's JWKS endpoint).
+**Nine** tools, mounted via FastMCP at `/mcp`, authenticated via Supabase OAuth 2.1 (bearer token
+validated against Supabase's JWKS endpoint). Revision 3 said "eight" while listing nine in the
+table below; nine is correct and nine were built.
+
+On token validation as implemented: the JWKS endpoint is
+`{SUPABASE_URL}/auth/v1/.well-known/jwks.json` and the expected issuer is
+`{SUPABASE_URL}/auth/v1`, with RS256 and ES256 both accepted — derived the same way FastMCP's own
+`SupabaseProvider` derives them. The legacy HS256 project secret is accepted as a fallback for
+projects that have not moved to asymmetric signing, and is what the local test-token helper signs
+with, so the auth path under test is the real one rather than a test-only bypass.
 
 | Tool | Purpose | Key inputs | Returns |
 |---|---|---|---|
@@ -280,6 +396,20 @@ jsonb with its per-category keys), the allowed operators, and one or two example
 "standard to build the query" the assistant is given up front so it doesn't have to guess syntax —
 and, per §1, this is deliberately carried in tool description/response content rather than a skill
 or an MCP prompt, since that's what the model actually consults automatically on every client.
+
+Two things the built `query_instructions` says that Revision 3 did not anticipate, because both
+only surfaced once real predicates were run through the validator:
+
+- **`fields->>'key'` returns text, so `<`, `<=`, `>`, `>=` on it compare alphabetically.**
+  `fields->>'inseam_inches' > '30'` is true for `'9'`. Casts are rejected (§4.1), so there is no
+  `::numeric` escape hatch, and the instructions therefore tell the assistant to use `=` or `IN` on
+  number-typed fields and rank the returned items itself. `warmth_rating` is a real integer column
+  and is the one numeric field that orders correctly. This is worth knowing when extending the
+  field templates: a `number`-typed category field is filterable but not rangeable.
+- **`ANY(...)` is supported, `ALL(ARRAY[...])` is not.** sqlglot parses `ALL` in that position as
+  an anonymous function, which the node allowlist refuses. §4.1 below lists both; the instructions
+  advertise only `ANY`, so the tool is self-consistent, and `ALL` buys nothing here that `ANY` and
+  the array containment operators do not already cover. Accepted rather than worked around.
 
 ### 4.1 Safe execution design for `query_closet_items`
 
@@ -310,6 +440,40 @@ The server:
 The actual guarantees against SQL injection or data exposure across users come from steps 3–4
 (allowlisted read-only role, parameterized `user_id`) — the AST walk is defense-in-depth on top of
 that, not a replacement for it.
+
+**Refinements from the build (Revision 4).** The six steps above survived contact intact; these are
+additions, not corrections.
+
+- **The allowlist is over AST *node types*, not a denylist of bad words.** Anything the parser
+  produces that is not explicitly permitted is rejected, so a construct nobody predicted — a cast
+  trick, an unknown function, a window expression — fails closed rather than needing to have been
+  thought of in advance.
+- **Unquoted identifiers are folded to lower case before the column check**, exactly as Postgres
+  resolves them. Without this, `CATEGORY = 'jacket'` — valid SQL, and a plausible thing for a model
+  writing SQL-shaped text to emit — is rejected as an unknown column, spending one of the user's
+  daily calls on a predicate that was never wrong. Quoted identifiers keep their case, also as
+  Postgres does, so `"User_Id"` is still not a name any allowlist matches.
+- **The textual pre-scan runs with string literals blanked out.** Otherwise
+  `notes ILIKE '%goes with jeans%'` is rejected for containing "with" — and `notes` is precisely
+  where the differentiating detail the assistant needs lives. This costs nothing in safety: the
+  scan's only output is a yes/no, it never feeds the SQL that gets built, and every structural
+  construct those keywords stand for is independently refused by the node allowlist.
+- **Node-count and nesting-depth caps**, checked textually before the recursive parser runs and
+  again on the parsed tree. A deeply nested predicate would otherwise exhaust the Python stack
+  inside a request, which is a crash rather than a rejection.
+- **`sqlglot.parse` is re-run to confirm the input was a single expression**, because
+  `parse_one` silently keeps only the first statement rather than complaining.
+- The re-serialised SQL is checked for `;`, `--` and `/*` before the statement is built — a
+  guard on the generator itself, not on the input.
+
+**How this was verified.** Beyond the branch's own tests, an independently written battery of 35
+attacks was run against it: second statements, subqueries, `DROP TABLE`, comment truncation,
+`UNION`, casts, `pg_sleep`, `pg_read_file`, `current_setting`, `version()`, the jsonb exists
+operator, a 300-deep parenthesis bomb, a 500-term `OR` chain, a table-qualified column, a bind
+placeholder, a quoted `"user_id"`, and a direct `user_id` comparison. All 35 were rejected; 14
+legitimate predicates were accepted; and a predicate deliberately written to match every row
+returned nothing belonging to a second user. Re-running that battery after any change to the
+validator is the cheapest way to keep this component honest.
 
 ### 4.2 `batch_add_items` design
 
@@ -343,18 +507,37 @@ failure.
 - **Per-user daily MCP usage cap**: tracked as a **call count**, not a "session" count — an MCP
   connection/session doesn't map cleanly onto a meaningful daily quota (a single ongoing Claude.ai
   conversation can be one long-lived session covering an entire day's worth of questions, or many
-  short ones), whereas a call counter is simple, robust, and easy to reason about. **Cap value: 10
-  calls per user per UTC day**, tracked in `usage_counters`, incremented atomically per call,
-  checked before executing any tool body. Configurable via an environment variable. Exceeding it
-  returns a clear structured error the assistant can relay ("today's usage limit is reached, try
-  again tomorrow").
+  short ones), whereas a call counter is simple, robust, and easy to reason about. **Cap value: 50
+  calls per user per UTC day** (raised from 10 in Revision 4 — see below), tracked in
+  `usage_counters`, incremented atomically per call, checked before executing any tool body.
+  Configurable via `DAILY_MCP_CALL_LIMIT`. Exceeding it returns a clear structured error the
+  assistant can relay ("today's usage limit is reached, try again tomorrow"), including when the
+  budget resets.
 
-  Worth knowing going in that 10/day is tight — a `get_closet_structure` call plus a couple of
-  `query_closet_items` calls across a few recommendation questions is most of a day's budget.
-  `batch_add_items`, `list_category_items`, and `get_closet_summary` were added partly to help
-  stretch this budget further (one batch call instead of N `add_item` calls; one summary call
-  instead of several targeted queries), but if 10/day turns out too tight once you're actually
-  using it, it's a one-line env var change to raise.
+  Revision 3 set this at 10/day, flagged it as tight, and said to raise it if that proved true in
+  practice. It did — a `get_closet_structure` call plus a couple of `query_closet_items` calls
+  across a few recommendation questions was most of a day's budget, and a single end-to-end test
+  walkthrough spent nearly all of it. **50/day is the default from Revision 4.**
+
+  The reasons `batch_add_items`, `list_category_items` and `get_closet_summary` exist have not
+  changed: one batch call instead of N `add_item` calls, one summary call instead of several
+  targeted queries. Call efficiency is worth having at any cap, and the tool descriptions still
+  steer the assistant that way without naming a number — every tool response carries
+  `calls_remaining_today`, so the model reads the live figure rather than a value baked into its
+  instructions. Nothing needs rewriting if the cap changes again.
+
+  The counter is a single conditional upsert, so two concurrent tool calls cannot both slip past
+  the cap, and a call that is refused does not inflate the count. Because `usage_counters` has no
+  insert or update policy for `authenticated` (§3), a user cannot reset their own quota.
+
+- **Cross-server token replay** (Revision 4): Supabase does not implement RFC 8707 resource
+  indicators, so an access token minted for a *different* MCP server backed by the *same* Supabase
+  project would also validate here. For a project hosting only this app there is no second server
+  to replay from, so this is a non-issue — but it stops being one the moment an unrelated MCP
+  server is added to the same project. Audience checking is available
+  (`EXPECTED_TOKEN_AUDIENCE`) but off by default: every token from a given project carries the same
+  audience, so the claim cannot distinguish this case anyway, and enforcing a guessed value fails
+  closed on the connector path, which is the hardest one to test before it is live.
 - **Account and data deletion**: a web-app-only action (deliberately **not** exposed as an MCP
   tool — deleting an entire closet is irreversible and shouldn't be one careless chat message away).
   Settings page has a "Delete my account" flow with an explicit confirmation step; the backend
@@ -376,12 +559,67 @@ failure.
 
 No embedded chat interface in v1.
 
+### REST API as built (Revision 4)
+
+All routes under `/api`, all requiring a Supabase access token, all resolving to the same `user_id`
+as the MCP path.
+
+| Method | Path | |
+|---|---|---|
+| `GET` | `/api/categories` | Every category with its field template — drives the dynamic form. |
+| `GET` | `/api/items` | `category`, repeatable `tags` (AND semantics), `limit`, `offset`. Returns `{items, total}`, where `total` is the whole closet, not the filtered count, so the UI can show how much of the 200-item cap is spent while a filter is applied. |
+| `GET` | `/api/tags` | **Added in Revision 4.** The caller's distinct tags with usage counts, derived from the items carrying them. Backs the closet browser's tag filter, which otherwise had no source given there is no tag registry table. Deriving client-side from a page of `/api/items` would give an incomplete list. |
+| `POST` | `/api/items` | |
+| `GET` `PATCH` `DELETE` | `/api/items/{id}` | |
+| `GET` `PUT` | `/api/profile` | Never 404s — a user with no row gets the defaults. |
+| `GET` | `/api/me` | Account summary: item count and limit, calls used today and the daily limit, and the connector URL the "Connect your assistant" page displays. |
+| `GET` | `/api/limits` | The caps applying to this account. |
+| `DELETE` | `/api/account` | |
+
+**One error envelope** (Revision 4). Domain errors and request-validation failures both return
+`{"error": "<stable code>", "message": "<human readable>", "details": {…}}`, so a client has one
+shape to understand rather than two. FastAPI's default `{"detail": [...]}` for body validation is
+overridden to match. Stable codes: `closet_full`, `validation_failed`, `unknown_category`,
+`not_found`, `daily_limit_reached`, `unsafe_query`. `message` is written to be shown to a person —
+which is also what makes it usable verbatim by the assistant on the MCP side.
+
 ---
 
 ## 7. Tickets for Claude Code
 
 Six tickets. **Ticket 1 first.** **Tickets 2 and 3 concurrent after that.** **Ticket 4 depends on
 Ticket 2.** **Ticket 5 can scaffold anytime, finishes after 1–3 are stable.** **Ticket 6 last.**
+
+### Build status (Revision 4)
+
+| Ticket | State |
+|---|---|
+| 1 — Foundations | **Done.** Verified against a real local Postgres. |
+| 2 — REST API | **Done.** Plus `/api/tags`, `/api/me`, `/api/limits` and the unified error envelope (§6). |
+| 3 — MCP server | **Done** except the manual Claude.ai connector OAuth test, which needs a deployed HTTPS instance. |
+| 4 — Frontend | **Done** except clicking through the magic-link flow, which needs a real Supabase project. |
+| 5 — Deployment | **Scaffolded.** Dockerfile, CI and deploy workflow written; never built or deployed — see below. |
+| 6 — Verification | **Partial.** Seed data and the adversarial battery done; the Claude.ai end-to-end walkthrough needs a deployed instance. |
+
+**How the sequencing actually went, in case it is repeated for v2.** Building the shared service
+layer (§2) as part of Ticket 1 rather than leaving Tickets 2 and 3 to "coordinate on shared service
+functions" is what made the concurrency work: Tickets 3 and 4 then ran in genuinely parallel
+sessions against a frozen contract and merged with no conflicts. The ticket boundaries in this
+section are otherwise sound; the one thing worth moving earlier is the shared layer.
+
+**What could not be verified, and why.** Three things were built but not exercised end to end,
+because the environment they were built in blocks the necessary network egress: the Docker image
+was never built (Docker Hub's blob CDN is blocked), the AWS deployment specifics follow the
+official `aws-actions/amazon-ecs-deploy-express-service` action's documented inputs rather than a
+reading of the AWS docs (`docs.aws.amazon.com` is blocked), and the Supabase dashboard steps come
+from search results rather than the live docs (`supabase.com` is blocked). Each is flagged in place
+in the runbook it belongs to rather than only here. What *was* proven about the image is its
+install step, reproduced outside Docker in a clean virtualenv.
+
+**Runbooks for the manual plumbing**, added in Revision 4 because none of it can be done by a
+pipeline: `docs/setup-supabase.md` (project, migrations, read-only role password, asymmetric JWT
+keys, OAuth 2.1 server with DCR, magic-link redirect URLs) and `infra/README.md` (ECR, three IAM
+roles with least-privilege policy documents, Secrets Manager, repository configuration).
 
 ### Ticket 1 — Foundations: Supabase schema, RLS, safe-query infrastructure, FastAPI skeleton
 *Sequential — do this first.*
@@ -431,10 +669,10 @@ Ticket 2.** **Ticket 5 can scaffold anytime, finishes after 1–3 are stable.** 
   `closet_query_view` (no assistant-supplied predicate text involved for either).
 - Implement `batch_add_items` per §4.2: the 20-item-per-call cap, per-item partial-success/failure
   results, and the closet-cap-reached-partway-through case.
-- Implement the per-user daily call-count cap (§5, 10/day) as a check-and-increment against
+- Implement the per-user daily call-count cap (§5, 50/day) as a check-and-increment against
   `usage_counters` before each tool body runs, and the 200-item cap inside `add_item` and
   `batch_add_items`.
-- Write a test client script (using the official MCP Python SDK's `Client`) exercising all eight
+- Write a test client script (using the official MCP Python SDK's `Client`) exercising all nine
   tools against a locally running server, including: a `batch_add_items` call mixing valid and
   invalid items to confirm partial success works as designed, and a battery of adversarial
   `where_clause` inputs for `query_closet_items` — a semicolon-separated second statement, an
@@ -442,7 +680,7 @@ Ticket 2.** **Ticket 5 can scaffold anytime, finishes after 1–3 are stable.** 
   another user's `user_id` directly, and a disallowed function call — all must be rejected with
   clear errors, none may reach the database as written.
 - **Definition of done**: the test script's happy-path calls succeed with correctly-shaped,
-  RLS-scoped results across all eight tools; the `batch_add_items` partial-success case behaves as
+  RLS-scoped results across all nine tools; the `batch_add_items` partial-success case behaves as
   designed; every adversarial `where_clause` input in the battery above is rejected before touching
   the database; a manual Claude.ai remote-connector test (via a tunneled local instance) completes
   the OAuth flow and successfully calls `get_closet_structure` followed by `query_closet_items`;
@@ -471,10 +709,25 @@ Ticket 2.** **Ticket 5 can scaffold anytime, finishes after 1–3 are stable.** 
 - ECS Express Mode service definition, environment/secrets wiring for Supabase keys (including the
   read-only role's connection string, kept separate from the main app's DB credentials), health
   checks.
-- Custom domain + TLS (required for Claude.ai's remote connector, which needs HTTPS).
+- ~~Custom domain + TLS (required for Claude.ai's remote connector, which needs HTTPS).~~
+  **Corrected in Revision 4: Express Mode's generated URL is already HTTPS with a managed
+  certificate, so the connector's requirement is met without a custom domain.** A custom domain is
+  polish, and shipping v1 on the generated URL is entirely reasonable. If you do want one: an ACM
+  certificate in the same region, attached to the service's load balancer, with a Route 53 alias
+  pointing at it — then update `PUBLIC_BASE_URL` so the Connect page hands out the new URL.
 - **Definition of done**: the deployed URL serves both REST and `/mcp`; a real Claude.ai remote
   connector completes OAuth against the deployed instance (not just localhost) and successfully
   calls a tool.
+
+**As built (Revision 4).** Express Mode provisions the service, load balancer, TLS, auto-scaling
+and URL itself, so there is no task definition or service definition to maintain — the deploy
+passes configuration to `aws-actions/amazon-ecs-deploy-express-service` and ECS creates the rest.
+Secrets come from one Secrets Manager entry read as individual JSON keys, so no value reaches the
+task definition or a workflow log. CI applies the migrations to a throwaway Postgres and runs lint
+plus the full test suite before anything is built or deployed; Supabase migrations are deliberately
+*not* in the pipeline, since they are applied by hand ahead of the deploy that needs them. Note
+that ECS injects secrets at task start, so a rotated secret does not reach running tasks without a
+forced deployment.
 
 ### Ticket 6 — End-to-end verification and polish
 *Last — depends on everything above.*
@@ -489,8 +742,8 @@ Ticket 2.** **Ticket 5 can scaffold anytime, finishes after 1–3 are stable.** 
   asking for an outfit recommendation for a specific occasion — confirm the assistant finds weather
   itself, builds a sensible `where_clause` via `query_closet_items`, and returns a reasonable top
   1–2 picks using the seeded data, referencing tags/notes where they matter (e.g. picking up on
-  "floral" or "multi-color"). Keep an eye on total call count spent across this whole test given the
-  10/day cap.
+  "floral" or "multi-color"). Keep an eye on total call count spent across this whole test — at
+  50/day (Revision 4) a full walkthrough fits comfortably, which it did not at 10.
 - Re-run the adversarial query battery from Ticket 3 once more against the deployed instance, not
   just locally.
 - Confirm the daily call cap and 200-item cap behave sensibly when hit through a real conversation
