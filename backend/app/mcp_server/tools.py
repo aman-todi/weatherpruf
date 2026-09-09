@@ -40,8 +40,7 @@ from app.mcp_server.auth import current_user_id
 from app.models import Item, ItemCreate, ItemUpdate
 from app.services import items as items_service
 from app.services import profile as profile_service
-from app.services import taxonomy
-from app.services import usage
+from app.services import taxonomy, usage
 
 logger = logging.getLogger(__name__)
 
@@ -259,12 +258,21 @@ def register_tools(mcp: FastMCP) -> None:
     async def batch_add_items(
         user_id: UUID,
         items: Annotated[
-            list[dict[str, Any]],
+            # Typed as a list of anything, not list[dict], on purpose. A
+            # schema-level rejection is all-or-nothing: one malformed entry
+            # would cost the caller all 20 items and a retry out of a 10-call
+            # daily budget, which is exactly what spec §4.2's partial-success
+            # contract exists to avoid. Each entry is validated individually
+            # below instead, and the required shape is spelled out here and in
+            # the tool description, which is what the model actually reads.
+            list[Any],
             Field(
                 description=(
                     "One object per garment, each in the same shape add_item takes: "
-                    "category (required) plus any of colors, brand, warmth_rating, "
-                    "formality, tags, notes, fields."
+                    "category (required, a category id from get_closet_structure) plus "
+                    "any of colors, brand, warmth_rating, formality, tags, notes, fields. "
+                    "For example: [{'category': 'tshirt', 'colors': ['red'], "
+                    "'brand': 'Nike'}, {'category': 'hoodie', 'colors': ['black']}]"
                 )
             ),
         ],
@@ -347,7 +355,9 @@ def register_tools(mcp: FastMCP) -> None:
     async def update_item(
         user_id: UUID,
         item_id: _ItemIdArg,
-        category: Annotated[str | None, Field(description="Move the item to another category.")] = None,
+        category: Annotated[
+            str | None, Field(description="Move the item to another category.")
+        ] = None,
         colors: _ColorsArg = None,
         brand: _BrandArg = None,
         warmth_rating: _WarmthArg = None,

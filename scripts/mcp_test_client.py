@@ -215,8 +215,10 @@ ADVERSARIAL_CLAUSES: list[tuple[str, str]] = [
     # -- union injection --
     ("1 = 1 UNION SELECT 1", "UNION injection"),
     (
-        "category = 'hat' UNION ALL SELECT id, user_id, category, colors, brand, "
-        "warmth_rating, formality, tags, notes, fields FROM public.closet_query_view",
+        (
+            "category = 'hat' UNION ALL SELECT id, user_id, category, colors, brand, "
+            "warmth_rating, formality, tags, notes, fields FROM public.closet_query_view"
+        ),
         "UNION ALL exfiltrating the whole view",
     ),
     # -- comment-based truncation --
@@ -251,6 +253,10 @@ ADVERSARIAL_CLAUSES: list[tuple[str, str]] = [
     ("category = E'\\x68at'", "backslash escape string"),
     # -- resource exhaustion --
     ("category = 'hat' AND " + " AND ".join(["1=1"] * 300), "absurdly long predicate"),
+    # sqlglot's parser is recursive: deep enough nesting raises RecursionError
+    # inside parse_one, so this has to be rejected before the parser sees it.
+    ("(" * 200 + "category = 'hat'" + ")" * 200, "deeply nested parentheses"),
+    ("pg_sleep(30) OR category = 'hat'", "pg_sleep as a short-circuit"),
 ]
 
 
@@ -336,12 +342,16 @@ async def run_suite(
     check("every tool in spec §4 is registered", names == expected, f"got {names}")
     check(
         "no tool exposes user_id as an argument",
-        all("user_id" not in (tool.input_schema or {}).get("properties", {}) for tool in tools.tools),
+        all(
+            "user_id" not in (tool.input_schema or {}).get("properties", {})
+            for tool in tools.tools
+        ),
     )
     check(
         "batch_add_items carries its system-prompt-style description (spec §4.2)",
         all(
-            phrase in (next(t for t in tools.tools if t.name == "batch_add_items").description or "")
+            phrase
+            in (next(t for t in tools.tools if t.name == "batch_add_items").description or "")
             for phrase in ("get_closet_structure", "ASK THE USER", "20 items")
         ),
     )
@@ -516,7 +526,8 @@ async def run_suite(
     check("echoes the category", listing.get("category") == "tshirt")
     check(
         "items carry the full field shape",
-        set(listing["items"][0]) >= {"id", "category", "colors", "brand", "tags", "notes", "fields"},
+        set(listing["items"][0])
+        >= {"id", "category", "colors", "brand", "tags", "notes", "fields"},
     )
     bad_category = payload(await call("list_category_items", {"category": "space_suit"}))
     check(
@@ -556,7 +567,8 @@ async def run_suite(
         check(
             f"{clause[:52]!r} matches {expected_count}",
             result.get("count") == expected_count,
-            f"got {result.get('count')} / {result.get('error', '')} {result.get('message', '')}"[:180],
+            f"got {result.get('count')} / {result.get('error', '')} "
+            f"{result.get('message', '')}"[:180],
         )
 
     echoed = payload(
@@ -672,7 +684,10 @@ async def run_suite(
         and updated.get("item", {}).get("colors") == ["navy", "white"],
         json.dumps(updated.get("item", {}))[:200],
     )
-    check("replaces the tags it was given", updated.get("item", {}).get("tags") == ["rain", "commute"])
+    check(
+        "replaces the tags it was given",
+        updated.get("item", {}).get("tags") == ["rain", "commute"],
+    )
 
     missing = payload(
         await call("update_item", {"item_id": str(uuid.uuid4()), "brand": "Nobody"})
@@ -690,7 +705,9 @@ async def run_suite(
     other_item_id = await pool.fetchval(
         "select id from public.items where user_id = $1", other_id
     )
-    stolen = payload(await call("update_item", {"item_id": str(other_item_id), "brand": "Mine now"}))
+    stolen = payload(
+        await call("update_item", {"item_id": str(other_item_id), "brand": "Mine now"})
+    )
     check(
         "another user's item cannot be updated",
         stolen.get("error") == "not_found",

@@ -83,6 +83,14 @@ JSON_COLUMN = "fields"
 
 MAX_CLAUSE_LENGTH = 2000
 MAX_AST_NODES = 400
+# Depth is bounded separately from node count because they fail differently:
+# 200 nested parentheses is only ~205 nodes but recurses 200 deep, and blowing
+# the Python stack inside a request is a crash, not a rejection. It is checked
+# twice — textually in _prescan before sqlglot's recursive parser runs, and
+# again on the AST afterwards, since a deep tree can also be built without deep
+# parenthesisation.
+MAX_NESTING_DEPTH = 40
+MAX_AST_DEPTH = 40
 
 # Step 1 of spec §4.1: a blunt textual scan, before the parser sees anything.
 # It rejects a few things the AST walk would also catch, on the principle that
@@ -200,7 +208,6 @@ _EXPLAINED_NODES: dict[type[exp.Expression], str] = {
     exp.With: "a common table expression (WITH ...)",
     exp.CTE: "a common table expression (WITH ...)",
     exp.Cast: "a type cast",
-    exp.Anonymous: "a function call",
     exp.Command: "a SQL statement rather than a boolean expression",
     exp.Star: "a wildcard (*)",
     exp.Table: "a table reference",
@@ -221,6 +228,14 @@ def _describe(node: exp.Expression) -> str:
     for node_type, description in _EXPLAINED_NODES.items():
         if isinstance(node, node_type):
             return description
+    if isinstance(node, exp.Func):
+        # Covers every function sqlglot knows by name (Length, Lower,
+        # CurrentVersion, ...) as well as the ones it does not (Anonymous), so
+        # the message reads the same whether or not sqlglot happened to
+        # recognise the name. Reached only for functions outside the allowlist:
+        # the permitted node types are matched before this.
+        name = node.sql_name() if hasattr(node, "sql_name") else type(node).__name__
+        return f"a function call ({name})"
     return f"an unsupported expression ({type(node).__name__})"
 
 
@@ -320,6 +335,24 @@ def _blank_string_literals(clause: str) -> str:
     return "".join(out)
 
 
+def _depth(nodes: list[exp.Expression], root: exp.Expression) -> int:
+    """How deep the tree goes, counted by walking each node's parent chain.
+
+    Bounded by the node-count check that runs first, so this stays cheap.
+    """
+    deepest = 0
+    for node in nodes:
+        levels = 0
+        current = node
+        while current is not root and current.parent is not None:
+            levels += 1
+            current = current.parent
+            if levels > MAX_AST_DEPTH:
+                return levels
+        deepest = max(deepest, levels)
+    return deepest
+
+
 def _prescan(where_clause: str) -> str:
     """Spec §4.1 step 1 — reject before the parser is even involved."""
     clause = (where_clause or "").strip()
@@ -340,7 +373,27 @@ def _prescan(where_clause: str) -> str:
         if sequence in clause:
             raise _reject(f"The where_clause contains {description}.", found=sequence)
 
-    keyword = _KEYWORD_RE.search(_blank_string_literals(clause))
+    blanked = _blank_string_literals(clause)
+
+    # Nesting depth is bounded *here*, before sqlglot sees the input, because
+    # sqlglot's parser is recursive: a few hundred nested parentheses raise
+    # RecursionError inside parse_one, which is a crash rather than a
+    # rejection. Checking the AST afterwards would be too late. Parentheses in
+    # string literals do not count, hence the blanked copy.
+    depth = 0
+    for char in blanked:
+        if char == "(":
+            depth += 1
+            if depth > MAX_NESTING_DEPTH:
+                raise _reject(
+                    "The where_clause nests parentheses more than "
+                    f"{MAX_NESTING_DEPTH} deep.",
+                    limit=MAX_NESTING_DEPTH,
+                )
+        elif char == ")":
+            depth -= 1
+
+    keyword = _KEYWORD_RE.search(blanked)
     if keyword:
         raise _reject(
             f"The where_clause contains the SQL keyword '{keyword.group(1).upper()}'. "
@@ -365,6 +418,12 @@ def validate_where_clause(where_clause: str, known_fields: set[str]) -> str:
         raise _reject(
             f"The where_clause is not valid SQL: {str(parse_error).splitlines()[0]}"
         ) from parse_error
+    except RecursionError as recursion_error:
+        # _prescan's nesting check should have caught this already; if some
+        # other shape still recurses too deep, it is a rejection rather than a
+        # 500. Deliberately not narrowed to a specific construct — the point is
+        # that an unanticipated one fails closed.
+        raise _reject("The where_clause is too deeply nested to parse.") from recursion_error
 
     if tree is None:
         raise _reject("The where_clause did not parse to an expression.")
@@ -381,6 +440,15 @@ def validate_where_clause(where_clause: str, known_fields: set[str]) -> str:
             f"The where_clause is too complex ({len(nodes)} nodes; the limit is {MAX_AST_NODES}).",
             nodes=len(nodes),
             limit=MAX_AST_NODES,
+        )
+
+    depth = _depth(nodes, tree)
+    if depth > MAX_AST_DEPTH:
+        raise _reject(
+            f"The where_clause is nested too deeply ({depth} levels; "
+            f"the limit is {MAX_AST_DEPTH}).",
+            depth=depth,
+            limit=MAX_AST_DEPTH,
         )
 
     for node in nodes:
