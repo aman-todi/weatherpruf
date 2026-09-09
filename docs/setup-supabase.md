@@ -186,10 +186,15 @@ The web app's "Connect your assistant" page shows this URL, taken from
 `PUBLIC_BASE_URL` with `/mcp` appended — so set that variable to the URL people
 will actually paste, not the ECS-generated one, if you have a custom domain.
 
-**Budget your first test.** The daily cap is 10 assistant calls per user
-(`DAILY_MCP_CALL_LIMIT`), and a single end-to-end walkthrough spends most of it.
-Raise it temporarily while testing rather than being confused by a limit error
-halfway through.
+**Budget your first test.** The daily cap is 50 assistant calls per user
+(`DAILY_MCP_CALL_LIMIT`), which leaves room for a full end-to-end walkthrough
+without the limit getting in the way. The spec originally proposed 10, which a
+single walkthrough would have spent almost entirely.
+
+The cap still exists, so if you are testing hard and hit it, raise the variable
+and redeploy rather than being confused by a limit error mid-conversation. Every
+tool response carries `calls_remaining_today`, so the assistant can tell you
+where it stands before it runs out.
 
 ## Rotating credentials later
 

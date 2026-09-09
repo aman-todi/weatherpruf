@@ -196,7 +196,7 @@ secrets at task start, so force a new deployment afterwards.
 | `SUPABASE_URL` | `https://abcdefgh.supabase.co` |
 | `PUBLIC_BASE_URL` | `https://wardrobe.example.com` |
 | `CORS_ALLOW_ORIGINS` | `https://wardrobe.example.com` |
-| `DAILY_MCP_CALL_LIMIT` | `10` |
+| `DAILY_MCP_CALL_LIMIT` | `50` |
 
 `PUBLIC_BASE_URL` is what the web app's "Connect your assistant" page shows the
 user, with `/mcp` appended. Set it to the URL people will actually paste into

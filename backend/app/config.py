@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     max_items_per_user: int = 200
     max_colors_per_item: int = 5
     max_batch_items: int = 20
-    daily_mcp_call_limit: int = 10
+    daily_mcp_call_limit: int = 50
     query_result_limit: int = 50
     category_listing_limit: int = 100
     query_statement_timeout_ms: int = 2000

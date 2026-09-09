@@ -152,7 +152,7 @@ the boundary.
 | `PUBLIC_BASE_URL` | Public origin; `/mcp` is appended to give users the connector URL. |
 | `CORS_ALLOW_ORIGINS` | Comma-separated origins for the web app. |
 | `MAX_ITEMS_PER_USER` | Closet cap. Default 200. |
-| `DAILY_MCP_CALL_LIMIT` | Assistant calls per user per UTC day. Default 10 — deliberately tight; raising it is a one-line change. |
+| `DAILY_MCP_CALL_LIMIT` | Assistant calls per user per UTC day. Default 50. The spec proposed 10 and said to raise it if that proved too tight; it did, so 50 is the default and 10 remains a one-line change back. |
 
 ## REST API
 
