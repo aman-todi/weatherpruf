@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from app import db
 from app.config import get_settings
 from app.errors import WardrobeError
+from app.static import mount_frontend
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -89,6 +90,9 @@ def create_app() -> FastAPI:
 
     _mount_rest_api(application)
     _mount_mcp(application)
+    # Last: this mount matches every path, so everything with a real route must
+    # already be registered above.
+    mount_frontend(application, settings.frontend_dist_path)
     return application
 
 

@@ -40,6 +40,10 @@ should change your mental model.
 - **`GET /api/tags`** (§6). Tags have no registry table by design, which left the web app with no
   way to know which tags a user has. Derived from the items that carry them.
 - **A unified error envelope** across both surfaces (§7, Ticket 2).
+- **A hosting decision the spec never made**: the frontend runs in the same container on the same
+  origin (§2). Revision 3 named React + Vite but never said where it would run, which left CORS, a
+  second certificate and a second deploy pipeline as implied-but-unowned work. Putting it in one
+  image deletes all three.
 
 **Learned about the platform**
 
@@ -212,8 +216,22 @@ data-access functions where possible... coordinate on shared service functions")
 layer up front in Ticket 1 turned that coordination problem into a non-issue and is what let
 Tickets 2 and 3 genuinely run in parallel.
 
-The frontend is **not** in the same container: it is a static Vite build served separately, while
-the image holds only the FastAPI app serving REST and `/mcp`.
+**The frontend ships in the same container** (decided in Revision 4; the spec had not said where
+it would be hosted). FastAPI serves the built Vite bundle at `/` with a fallback to `index.html`
+for client-side routes, alongside `/api` and `/mcp`. One image, one origin, one deploy.
+
+This is not merely convenient — it removes whole categories of configuration rather than solving
+them: no CORS, no second certificate or domain, no second deploy pipeline, and `PUBLIC_BASE_URL` is
+simply where everything is. The alternative (S3 + CloudFront, or a Vercel-class host) buys CDN edge
+caching and independent frontend deploys, neither of which is worth that cost at single-digit
+concurrent users. The seam is cheap to reverse if it ever is: the API client already honours
+`VITE_API_BASE_URL` for a split-origin deployment, and `CORS_ALLOW_ORIGINS` still exists for
+exactly that case.
+
+One consequence worth knowing: Vite inlines `VITE_*` values at build time, so the Supabase project
+is baked into the image by `docker build --build-arg` rather than supplied to the running task.
+Both values are publishable — the anon key is safe in a bundle because RLS is what protects the
+data — so they are repository variables, not secrets.
 
 ---
 
@@ -603,7 +621,7 @@ Ticket 2.** **Ticket 5 can scaffold anytime, finishes after 1–3 are stable.** 
 | 1 — Foundations | **Done.** Verified against a real local Postgres. |
 | 2 — REST API | **Done.** Plus `/api/tags`, `/api/me`, `/api/limits` and the unified error envelope (§6). |
 | 3 — MCP server | **Done** except the manual Claude.ai connector OAuth test, which needs a deployed HTTPS instance. |
-| 4 — Frontend | **Done** except clicking through the magic-link flow, which needs a real Supabase project. |
+| 4 — Frontend | **Done** except clicking through the magic-link flow, which needs a real Supabase project. Served from the backend container on one origin (§2). |
 | 5 — Deployment | **Scaffolded.** Dockerfile, CI and deploy workflow written; never built or deployed — see below. |
 | 6 — Verification | **Partial.** Seed data and the adversarial battery done; the Claude.ai end-to-end walkthrough needs a deployed instance. |
 
@@ -711,7 +729,9 @@ roles with least-privilege policy documents, Secrets Manager, repository configu
 ### Ticket 5 — Deployment: Docker + ECS Express Mode
 *Dockerfile/config can be scaffolded anytime; final deploy depends on Tickets 1–3.*
 
-- Single Dockerfile for the FastAPI app (serving both REST and the mounted MCP sub-app).
+- Single Dockerfile for the FastAPI app (serving both REST and the mounted MCP sub-app),
+  **and the built frontend alongside them** — see §2. Revision 3 left the frontend's hosting
+  unstated; Revision 4 puts it in the same image on the same origin.
 - ECS Express Mode service definition, environment/secrets wiring for Supabase keys (including the
   read-only role's connection string, kept separate from the main app's DB credentials), health
   checks.

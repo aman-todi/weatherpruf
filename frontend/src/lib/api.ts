@@ -21,10 +21,13 @@ import type {
   UserProfileUpdate,
 } from './types';
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL?.trim() || 'http://localhost:8000').replace(
-  /\/+$/,
-  '',
-);
+/**
+ * Empty means "same origin", which is the normal case: the FastAPI container
+ * serves this bundle and `/api` together, and the dev server proxies `/api` to
+ * the backend. Set `VITE_API_BASE_URL` only if the frontend is ever split onto
+ * a different domain from the API.
+ */
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL?.trim() || '').replace(/\/+$/, '');
 
 /** Stable `error` codes from `backend/app/errors.py` worth branching on. */
 export type ApiErrorCode =

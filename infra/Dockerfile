@@ -1,14 +1,35 @@
 #
-# One image serving both the REST API and the mounted MCP sub-app (spec §2, §7
-# Ticket 5). Build from the repository root:
+# One image serving the whole product on one origin (spec §2, §7 Ticket 5):
+# the React bundle at /, the REST API at /api, and the MCP connector at /mcp.
+# Build from the repository root:
 #
 #     docker build -f infra/Dockerfile -t weatherpruf .
 #
-# The frontend is not in this image — it is a static Vite build served
-# separately. This container is the thing Claude.ai's connector talks to.
+# Serving the frontend from the same origin as the API is what removes CORS,
+# the second certificate and the second deploy from this project entirely.
 
 # ---------------------------------------------------------------------------
-# Builder: install the app and its dependencies into a self-contained venv.
+# Frontend builder: compile the React app to static assets.
+# ---------------------------------------------------------------------------
+FROM node:22-slim AS frontend
+
+WORKDIR /build
+
+# npm ci needs both files and installs exactly what the lockfile pins.
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+# Vite inlines VITE_* values at build time rather than reading them at runtime,
+# so the Supabase project has to be known here, not in the task definition.
+# Both are publishable: the anon key is safe in a bundle because RLS is what
+# protects the data. Never pass the service-role key.
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+RUN npm run build
+
+# ---------------------------------------------------------------------------
+# Backend builder: install the app and its dependencies into a self-contained venv.
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim AS builder
 
@@ -49,6 +70,10 @@ RUN apt-get update \
 # The venv carries the installed `app` package, so there is no second copy of
 # the source in the image and no ambiguity about which one is imported.
 COPY --from=builder --chown=root:root /opt/venv /opt/venv
+
+# The built frontend. FRONTEND_DIST_PATH defaults to this location; the app
+# serves it at / and falls back to index.html for client-side routes.
+COPY --from=frontend --chown=root:root /build/dist /srv/static
 
 WORKDIR /srv
 USER app

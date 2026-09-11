@@ -14,6 +14,7 @@ on:
     branches: [main]
     paths:
       - "backend/**"
+      - "frontend/**"
       - "infra/Dockerfile"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
@@ -63,6 +64,19 @@ jobs:
           psql -h localhost -U postgres \
             -c "alter role wardrobe_readonly with password 'readonly-ci'"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build and lint the frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
       - name: Install and test
         working-directory: backend
         env:
@@ -97,7 +111,15 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           IMAGE="$REGISTRY/$ECR_REPOSITORY:${{ github.sha }}"
-          docker build -f infra/Dockerfile -t "$IMAGE" .
+          # Vite inlines VITE_* at build time, so the Supabase project is baked
+          # into the bundle here rather than supplied to the running task. Both
+          # values are publishable — the anon key is safe in a bundle because
+          # RLS protects the data — so they are repository variables, not
+          # secrets. The service-role key is never passed to this build.
+          docker build -f infra/Dockerfile -t "$IMAGE" \
+            --build-arg VITE_SUPABASE_URL="${{ vars.SUPABASE_URL }}" \
+            --build-arg VITE_SUPABASE_ANON_KEY="${{ vars.SUPABASE_ANON_KEY }}" \
+            .
           docker push "$IMAGE"
           echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
 
@@ -121,7 +143,6 @@ jobs:
             [
               {"name": "ENVIRONMENT", "value": "production"},
               {"name": "PUBLIC_BASE_URL", "value": "${{ vars.PUBLIC_BASE_URL }}"},
-              {"name": "CORS_ALLOW_ORIGINS", "value": "${{ vars.CORS_ALLOW_ORIGINS }}"},
               {"name": "SUPABASE_URL", "value": "${{ vars.SUPABASE_URL }}"},
               {"name": "DAILY_MCP_CALL_LIMIT", "value": "${{ vars.DAILY_MCP_CALL_LIMIT }}"}
             ]

@@ -180,9 +180,14 @@ audience, setting the variable adds the assertion.
 
 Under **Authentication → URL Configuration**:
 
-- **Site URL**: the deployed frontend origin (e.g. `https://wardrobe.example.com`).
+- **Site URL**: the deployed origin (e.g. `https://wardrobe.example.com`).
 - **Redirect URLs**: add both the deployed origin and `http://localhost:5173`
   so magic links work in local development.
+
+The frontend and the API share one origin — the container serves the React
+bundle at `/`, the REST API at `/api` and the connector at `/mcp` — so this is
+the same host you will use for `PUBLIC_BASE_URL`, and there is no separate
+frontend domain to register here.
 
 Magic link is what the spec chose for v1 (§6) — least code, no password reset
 flow to build.
@@ -190,7 +195,8 @@ flow to build.
 ## 7. Where each value ends up
 
 **Backend** (AWS Secrets Manager for the secrets, ECS environment variables for
-the rest — see [`infra/README.md`](../infra/README.md)):
+the rest — see [`infra/README.md`](../infra/README.md)). `CORS_ALLOW_ORIGINS` is
+absent on purpose: same origin, so no CORS:
 
 | Variable | Source | Secret? |
 |---|---|---|
@@ -207,7 +213,17 @@ the rest — see [`infra/README.md`](../infra/README.md)):
 |---|---|
 | `VITE_SUPABASE_URL` | Step 1 |
 | `VITE_SUPABASE_ANON_KEY` | Step 1 |
-| `VITE_API_BASE_URL` | the deployed backend URL |
+
+`VITE_API_BASE_URL` is deliberately **not** in that list. The API is on the same
+origin as the app, so the client uses relative URLs; the Vite dev server proxies
+`/api` to the backend to give development the same shape. Set it only if the
+frontend is ever split onto its own domain.
+
+Note that these are **build-time** values: Vite inlines them into the bundle, so
+they are supplied to `docker build` (as `--build-arg`) rather than to the running
+task. Both are publishable — the anon key is safe in a bundle precisely because
+RLS is what protects the data — so they belong in repository *variables*, not
+secrets. The `service_role` key must never reach this build.
 
 ## 8. Connect Claude.ai
 

@@ -1,7 +1,11 @@
 # Deployment
 
-One container image serves both the REST API and the MCP sub-app, running as an
-**ECS Express Mode** service. Express Mode provisions the Fargate service, the
+One container image serves the whole product — the React bundle at `/`, the REST
+API at `/api`, and the MCP connector at `/mcp` — running as an **ECS Express
+Mode** service. Serving the frontend from the same origin as the API is what
+removes CORS, a second certificate, a second domain and a second deploy pipeline
+from this project; at single-digit concurrent users a CDN in front of the static
+assets would buy nothing to pay for that. Express Mode provisions the Fargate service, the
 load balancer, a TLS certificate, auto-scaling and a public HTTPS URL from just
 an image plus two IAM roles — so there is no task definition or service
 definition checked in here. The one-time setup below is what you do by hand;
@@ -194,9 +198,18 @@ secrets at task start, so force a new deployment afterwards.
 | Name | Example |
 |---|---|
 | `SUPABASE_URL` | `https://abcdefgh.supabase.co` |
+| `SUPABASE_ANON_KEY` | the project's anon key — read at **build** time and inlined into the bundle |
 | `PUBLIC_BASE_URL` | `https://wardrobe.example.com` |
-| `CORS_ALLOW_ORIGINS` | `https://wardrobe.example.com` |
 | `DAILY_MCP_CALL_LIMIT` | `50` |
+
+`SUPABASE_ANON_KEY` is a variable rather than a secret deliberately: Vite inlines
+it into the JavaScript bundle, so it is public the moment anyone loads the page.
+That is by design — RLS is what protects the data, not the anonymity of that key.
+The `service_role` key is the one that must stay in Secrets Manager and never
+reach a build.
+
+There is no `CORS_ALLOW_ORIGINS`: the frontend is served from the same origin as
+the API, so no cross-origin request is ever made.
 
 `PUBLIC_BASE_URL` is what the web app's "Connect your assistant" page shows the
 user, with `/mcp` appended. Set it to the URL people will actually paste into
@@ -253,9 +266,17 @@ reach the container: the REST API will work and `query_closet_items` will not.
 ## Building locally
 
 ```bash
-docker build -f infra/Dockerfile -t weatherpruf .
+docker build -f infra/Dockerfile -t weatherpruf \
+  --build-arg VITE_SUPABASE_URL="https://<ref>.supabase.co" \
+  --build-arg VITE_SUPABASE_ANON_KEY="<anon key>" \
+  .
 docker run --rm -p 8000:8000 --env-file backend/.env weatherpruf
 ```
+
+The whole app is then at `http://localhost:8000` — page, API and connector.
+Omitting the build args produces a working image whose frontend cannot reach
+Supabase, and which shows its setup screen naming the missing values rather than
+a blank page.
 
 On Linux, a `DATABASE_URL` pointing at `127.0.0.1` refers to the container, not
 your host — use `--network host`, or point it at your host's LAN address.

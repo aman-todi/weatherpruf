@@ -32,7 +32,7 @@ backend/
     api/          REST routes for the web app
     mcp_server/   the FastMCP sub-app mounted at /mcp
   tests/
-frontend/         React + Vite web app
+frontend/         React + Vite web app — built into the backend image, same origin
 infra/            Dockerfile and ECS Express Mode config
 scripts/          local database and dev helpers
 ```
@@ -71,6 +71,13 @@ uvicorn app.main:app --reload
 ```
 
 `GET /health` reports the status of both database pools.
+
+In production one container is the whole product: the React bundle at `/`, the
+REST API at `/api`, the MCP connector at `/mcp` — one origin, so no CORS. In
+local development it is easier to run Vite separately for hot reload; the dev
+server proxies `/api` to the backend, so the client code is identical either
+way. To try the production shape locally, `npm run build` in `frontend/` and
+start the backend with `FRONTEND_DIST_PATH=../frontend/dist`.
 
 ```bash
 pytest                    # runs against the local wardrobe_dev database
@@ -150,7 +157,8 @@ the boundary.
 | `SUPABASE_JWT_SECRET` | Legacy HS256 project secret. Also what `make_test_token.py` signs with locally. |
 | `EXPECTED_TOKEN_AUDIENCE` | Optional. Unset means the `aud` claim is not checked — see `app/auth.py` for why that is the default. |
 | `PUBLIC_BASE_URL` | Public origin; `/mcp` is appended to give users the connector URL. |
-| `CORS_ALLOW_ORIGINS` | Comma-separated origins for the web app. |
+| `CORS_ALLOW_ORIGINS` | Comma-separated origins. Empty by default — the frontend is served from this same origin in production, so no CORS is involved. Needed only for a split-origin deployment. |
+| `FRONTEND_DIST_PATH` | Where the built frontend lives (`/srv/static` in the image). If it is absent, only the API and connector are served. |
 | `MAX_ITEMS_PER_USER` | Closet cap. Default 200. |
 | `DAILY_MCP_CALL_LIMIT` | Assistant calls per user per UTC day. Default 50. The spec proposed 10 and said to raise it if that proved too tight; it did, so 50 is the default and 10 remains a one-line change back. |
 

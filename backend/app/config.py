@@ -56,9 +56,21 @@ class Settings(BaseSettings):
     environment: str = "development"
     public_base_url: str = "http://localhost:8000"
 
+    # Where the built frontend lives. When the directory exists, the app serves
+    # it at / alongside /api and /mcp, so one container is the whole product on
+    # one origin (see app/main.py). When it does not — the usual case in local
+    # development, where Vite serves the frontend on its own port — only the
+    # API and the connector are served.
+    frontend_dist_path: str = "/srv/static"
+
     # Comma-separated rather than a list field: pydantic-settings would
     # otherwise try to JSON-decode the raw env value before any validator runs.
-    cors_allow_origins: str = "http://localhost:5173"
+    #
+    # Empty by default because the frontend is served from this same origin in
+    # production, which needs no CORS at all. It is set in local development,
+    # where Vite runs on its own port, and would be set again if the frontend
+    # were ever split onto its own domain.
+    cors_allow_origins: str = ""
 
     @property
     def cors_origins(self) -> list[str]:
