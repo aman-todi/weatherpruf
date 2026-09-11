@@ -34,9 +34,11 @@ src/
     supabase.ts   the auth client, plus a "is this configured?" flag so a missing
                   .env produces a setup screen instead of a blank page
     format.ts     enum ids -> human labels, colour name -> swatch
+    oauth.ts      the consent path, and the magic-link redirect that preserves
+                  a pending authorization_id across sign-in
   auth/           session context; magic-link sign-in
   components/     Layout, Modal, ItemCard, ItemForm and its two custom inputs
-  pages/          Login, Closet, Settings, Connect
+  pages/          Login, Closet, Settings, Connect, Consent
 ```
 
 ### Two things worth knowing

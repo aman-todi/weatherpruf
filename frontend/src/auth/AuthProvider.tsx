@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
+import { magicLinkRedirect } from '../lib/oauth';
 import { supabase } from '../lib/supabase';
 import { AuthContext, type AuthValue } from './AuthContext';
 
@@ -32,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (email: string) => {
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: magicLinkRedirect() },
     });
     if (error) throw new Error(error.message);
   }, []);

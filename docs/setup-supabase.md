@@ -177,8 +177,42 @@ and picks the path.
 Under **Authentication → OAuth Server**:
 
 1. Enable the OAuth 2.1 authorization server.
-2. Enable **Dynamic Client Registration**, so Claude.ai can register itself
-   without you pre-creating a client.
+2. Enable **Dynamic Client Registration** (labelled "Allow Dynamic OAuth
+   Apps"), so Claude.ai can register itself without you pre-creating a client.
+3. Leave **Authorization Path** at `/oauth/consent`. It must match
+   `CONSENT_PATH` in `frontend/src/lib/oauth.ts`; change one and you must change
+   the other.
+4. Check the **Site URL** shown on this screen. It is the shared value from
+   Authentication → URL Configuration and defaults to `http://localhost:3000`,
+   which is wrong for this app on both counts — the dev server is Vite on
+   **5173**, and in production it needs to be the deployed frontend origin. Fix
+   it in step 6; the preview here should then read
+   `https://<your-domain>/oauth/consent`.
+
+### Supabase does not render the consent screen — the app does
+
+This is the part that is easy to miss, and it dead-ends the connector flow when
+it is missed. Supabase is the authorization server, but it does not ask the user
+for consent itself: it redirects to the Authorization Path with an
+`authorization_id` and expects your app to approve or deny.
+
+`frontend/src/pages/ConsentPage.tsx` is that screen. It reads the
+`authorization_id`, fetches the request with
+`supabase.auth.oauth.getAuthorizationDetails`, shows who is asking and what they
+asked for, and calls `approveAuthorization` or `denyAuthorization`. Nothing to
+configure — but two deployment requirements follow from it:
+
+- **The static host must fall back to `index.html` for unknown paths.** Supabase
+  hard-navigates to `/oauth/consent`; a plain static server with no SPA rewrite
+  returns 404 and the flow ends there. This is the frontend's hosting concern,
+  not the container in `infra/` — that image serves only the API and the MCP
+  sub-app.
+- **`/oauth/consent` must be reachable without a session surviving.** A user who
+  is signed out when Claude.ai sends them there gets the login page; the magic
+  link has to return them to the full URL, query string included, or the pending
+  request is lost. `magicLinkRedirect()` in `frontend/src/lib/oauth.ts` is what
+  keeps that intact — worth knowing before someone "simplifies" it back to
+  `window.location.origin`.
 
 DCR is the MCP client onboarding path this design depends on. The spec calls
 this out as a known, accepted limitation (§0): DCR is deprecated in favour of

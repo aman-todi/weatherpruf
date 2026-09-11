@@ -4,9 +4,11 @@ import { useAuth } from './auth/AuthContext';
 import { Layout } from './components/Layout';
 import { ClosetPage } from './pages/ClosetPage';
 import { ConnectPage } from './pages/ConnectPage';
+import { ConsentPage } from './pages/ConsentPage';
 import { LoginPage } from './pages/LoginPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SetupNotice } from './pages/SetupNotice';
+import { CONSENT_PATH } from './lib/oauth';
 import { supabaseConfigured } from './lib/supabase';
 
 export default function App() {
@@ -38,6 +40,10 @@ function Routed() {
 
   return (
     <Routes>
+      {/* Outside <Layout>: a consent screen reached mid-flow from Claude.ai
+          should not offer the closet's navigation. React Router ranks this
+          above the catch-all below by specificity, not by order. */}
+      <Route path={CONSENT_PATH} element={<ConsentPage />} />
       <Route element={<Layout />}>
         <Route index element={<ClosetPage />} />
         <Route path="connect" element={<ConnectPage />} />
