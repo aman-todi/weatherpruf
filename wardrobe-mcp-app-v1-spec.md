@@ -339,6 +339,12 @@ That bound parameter, not RLS, is what keeps users apart on the query path; the 
 read with that in mind wherever it says "RLS protects both surfaces", because on this one path it
 does not.
 
+Better still, **the project's Data API (PostgREST) can be switched off entirely**
+(Revision 4), because nothing in this app uses it: the frontend uses Supabase only for auth, and
+the backend reaches the database directly over asyncpg. That removes the exposure route above
+rather than defending against it. The `revoke` stays regardless, so the guarantee survives the
+Data API being turned back on.
+
 Two further hardening decisions on the role, neither of which the design called for:
 
 - It is created **without a password**, so no credential is committed. An operator sets one after

@@ -19,6 +19,43 @@ Create a Supabase project in a region close to where the ECS service will run �
 every request makes at least one database round trip, so cross-region latency is
 paid on every call.
 
+### The security toggles on the creation screen
+
+The new-project screen offers **Enable Data API**, **Automatically expose new
+tables**, and **Enable automatic RLS**.
+
+**Turn the Data API off.** This app never uses it. The Data API is PostgREST at
+`/rest/v1/`; every Supabase HTTP call in this codebase goes to `/auth/v1/`
+instead (JWKS for token verification, and the admin endpoint that deletes a user
+during account deletion), the frontend uses only `supabase.auth.*` for the magic
+link, and the database is reached directly over asyncpg with `DATABASE_URL`. The
+web app talks to this project's own FastAPI at `/api`, not to Supabase. With the
+Data API off, the other two toggles are moot — they only govern what PostgREST
+exposes — and Supabase generally greys them out.
+
+This is worth more than tidiness. §3 of the spec explains why
+`closet_query_view` must never be granted to `authenticated`: the view runs with
+its owner's privileges, so RLS on `items` does not apply through it, and
+exposing it would be a cross-user read. **That risk exists only because
+PostgREST would expose the view.** With the Data API off it is structurally
+absent rather than merely defended against. The `revoke` in
+`0003_rls.sql` stays regardless — it is what keeps the guarantee if the Data API
+is ever switched back on.
+
+Enabling all three is also a safe choice, if you would rather not turn things
+off on a screen you are seeing for the first time. The migrations set every
+grant explicitly and enable RLS on all six tables themselves, and the revoke
+above is already in `0003`. If you go that way, **turn "Enable automatic RLS"
+on** as a safety net for any table added later that forgets to.
+
+Either way it is reversible under **Project Settings → API**.
+
+One caveat worth knowing before you decide: Supabase Studio's **Table Editor**
+may depend on the Data API to browse rows, and could show an error or an empty
+grid with it off. The **SQL Editor is unaffected**, and that is what every step
+in this runbook uses. If you want the Table Editor for poking around, turn the
+Data API back on and rely on the revoke.
+
 From **Project Settings → API**, note:
 
 | Value | Goes to | Sensitivity |
