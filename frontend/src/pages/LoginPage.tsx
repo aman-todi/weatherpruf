@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { Banner } from '../components/Banner';
+import { isConsentPath } from '../lib/oauth';
 
 export function LoginPage() {
   const { signIn } = useAuth();
@@ -8,6 +9,10 @@ export function LoginPage() {
   const [sending, setSending] = useState(false);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // An assistant sent the user here to approve a connection and they turned out
+  // not to be signed in. Saying so beats a bare login page mid-flow; the link
+  // itself returns them to the pending request (see `magicLinkRedirect`).
+  const forConsent = isConsentPath();
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -29,8 +34,9 @@ export function LoginPage() {
         <span className="brand__mark brand__mark--large" aria-hidden />
         <h1>weatherpruf</h1>
         <p className="auth-card__tagline">
-          Your closet, catalogued once — then dressed every morning by an assistant that checks the
-          weather for you.
+          {forConsent
+            ? 'Sign in to finish connecting your assistant. The link brings you back to the approval screen.'
+            : 'Your closet, catalogued once — then dressed every morning by an assistant that checks the weather for you.'}
         </p>
 
         {sentTo ? (

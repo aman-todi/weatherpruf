@@ -7,11 +7,13 @@ what it produces and which environment variable it ends up in.
 > **How this was written.** `supabase.com` is blocked from the development
 > environment this repository was built in, so the dashboard navigation below
 > comes from search results rather than a reading of the live docs, and menu
-> labels may have moved. The parts that are *verified* are the ones the code
-> depends on: the JWKS URL, the token issuer, and the signing algorithms. Those
-> were checked against FastMCP's own `SupabaseProvider`, which derives them the
-> same way this app does (`{project_url}/auth/v1/.well-known/jwks.json` and
-> issuer `{project_url}/auth/v1`, RS256 or ES256).
+> labels may have moved — step 4's had, and has since been corrected against the
+> live dashboard; treat the rest with the same suspicion. The parts that are
+> *verified* are the ones the code depends on: the JWKS URL, the token issuer,
+> and the signing algorithms. Those were checked against FastMCP's own
+> `SupabaseProvider`, which derives them the same way this app does
+> (`{project_url}/auth/v1/.well-known/jwks.json` and issuer
+> `{project_url}/auth/v1`, RS256 or ES256).
 
 ## 1. Create the project
 
@@ -44,9 +46,12 @@ is ever switched back on.
 
 Enabling all three is also a safe choice, if you would rather not turn things
 off on a screen you are seeing for the first time. The migrations set every
-grant explicitly and enable RLS on all six tables themselves, and the revoke
-above is already in `0003`. If you go that way, **turn "Enable automatic RLS"
-on** as a safety net for any table added later that forgets to.
+grant explicitly and enable RLS on all five tables themselves — and `force row
+level security` on the three that hold user data, which applies even to the
+table owner — and the revoke above is already in `0003`. `closet_query_view` is
+not a sixth: it is a view, it cannot carry RLS at all, and the revoke is
+precisely why that does not matter. If you go that way, **turn "Enable
+automatic RLS" on** as a safety net for any table added later that forgets to.
 
 Either way it is reversible under **Project Settings → API**.
 
@@ -71,7 +76,7 @@ or the CLI:
 
 ```bash
 for f in db/migrations/*.sql; do
-  psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$f"
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
 done
 ```
 
@@ -129,8 +134,33 @@ psql "$READONLY_DATABASE_URL" -f db/tests/verify_readonly_role.sql
 
 ## 4. Switch JWT signing to asymmetric keys
 
-Under **Authentication → JWT Keys** (labelled "JWT Signing Keys" in some
-versions), move the project to **ES256** or **RS256**.
+**Check this before changing anything — it is usually already done.** Supabase
+has created new projects with asymmetric signing keys by default since 1 October
+2025, so a recently created project needs no action here.
+
+The reliable check costs one request and does not depend on a dashboard label:
+
+```bash
+curl -s https://<ref>.supabase.co/auth/v1/.well-known/jwks.json | jq
+```
+
+A populated `keys` array means asymmetric signing is on and this step is
+finished. `{"keys":[]}` or a 404 means the project is still on the legacy HS256
+secret. That endpoint is the same URL `app/config.py` derives from
+`SUPABASE_URL`, so this is a direct check on what the backend actually uses —
+better evidence than any menu.
+
+If you do need to switch, the keys live under **Project Settings → JWT Keys**
+(`/project/<ref>/settings/jwt`) — *not* under Authentication, where earlier
+revisions of this file sent you. Click **Migrate JWT secret**: it imports the
+legacy secret into the new system and creates an asymmetric key alongside it,
+which you then rotate to. Each step is reversible and zero-downtime.
+
+**Pick RS256 or ES256** (ECC P-256 is ES256). Supabase also offers Ed25519, and
+`_ASYMMETRIC_ALGORITHMS` in `app/auth.py` is a hardcoded allowlist of those
+two — an Ed25519 key publishes fine in JWKS and then fails verification at
+runtime with a confusing algorithm error. RS256 is Supabase's default, so the default is
+safe.
 
 This matters because the backend verifies tokens against your project's JWKS
 endpoint, which only exists for asymmetric keys. The app also accepts the legacy
@@ -147,8 +177,42 @@ and picks the path.
 Under **Authentication → OAuth Server**:
 
 1. Enable the OAuth 2.1 authorization server.
-2. Enable **Dynamic Client Registration**, so Claude.ai can register itself
-   without you pre-creating a client.
+2. Enable **Dynamic Client Registration** (labelled "Allow Dynamic OAuth
+   Apps"), so Claude.ai can register itself without you pre-creating a client.
+3. Leave **Authorization Path** at `/oauth/consent`. It must match
+   `CONSENT_PATH` in `frontend/src/lib/oauth.ts`; change one and you must change
+   the other.
+4. Check the **Site URL** shown on this screen. It is the shared value from
+   Authentication → URL Configuration and defaults to `http://localhost:3000`,
+   which is wrong for this app on both counts — the dev server is Vite on
+   **5173**, and in production it needs to be the deployed frontend origin. Fix
+   it in step 6; the preview here should then read
+   `https://<your-domain>/oauth/consent`.
+
+### Supabase does not render the consent screen — the app does
+
+This is the part that is easy to miss, and it dead-ends the connector flow when
+it is missed. Supabase is the authorization server, but it does not ask the user
+for consent itself: it redirects to the Authorization Path with an
+`authorization_id` and expects your app to approve or deny.
+
+`frontend/src/pages/ConsentPage.tsx` is that screen. It reads the
+`authorization_id`, fetches the request with
+`supabase.auth.oauth.getAuthorizationDetails`, shows who is asking and what they
+asked for, and calls `approveAuthorization` or `denyAuthorization`. Nothing to
+configure — but two deployment requirements follow from it:
+
+- **The static host must fall back to `index.html` for unknown paths.** Supabase
+  hard-navigates to `/oauth/consent`; a plain static server with no SPA rewrite
+  returns 404 and the flow ends there. This is the frontend's hosting concern,
+  not the container in `infra/` — that image serves only the API and the MCP
+  sub-app.
+- **`/oauth/consent` must be reachable without a session surviving.** A user who
+  is signed out when Claude.ai sends them there gets the login page; the magic
+  link has to return them to the full URL, query string included, or the pending
+  request is lost. `magicLinkRedirect()` in `frontend/src/lib/oauth.ts` is what
+  keeps that intact — worth knowing before someone "simplifies" it back to
+  `window.location.origin`.
 
 DCR is the MCP client onboarding path this design depends on. The spec calls
 this out as a known, accepted limitation (§0): DCR is deprecated in favour of
