@@ -202,11 +202,15 @@ for consent itself: it redirects to the Authorization Path with an
 asked for, and calls `approveAuthorization` or `denyAuthorization`. Nothing to
 configure — but two deployment requirements follow from it:
 
-- **The static host must fall back to `index.html` for unknown paths.** Supabase
-  hard-navigates to `/oauth/consent`; a plain static server with no SPA rewrite
-  returns 404 and the flow ends there. This is the frontend's hosting concern,
-  not the container in `infra/` — that image serves only the API and the MCP
-  sub-app.
+- **The host must fall back to `index.html` for unknown paths.** Supabase
+  hard-navigates to `/oauth/consent`; a server with no SPA rewrite returns 404
+  and the flow ends there. **This is already handled**: the frontend is served
+  by the same container as the API (see `infra/README.md`), and
+  `backend/app/static.py` falls back to `index.html` for any path that is not a
+  real file and not an application route. Verified —
+  `/oauth/consent?authorization_id=…` returns the app, while `/api/nope` still
+  returns a JSON 404 rather than the shell. If the frontend is ever split onto
+  a separate static host, that host has to be configured to do the same.
 - **`/oauth/consent` must be reachable without a session surviving.** A user who
   is signed out when Claude.ai sends them there gets the login page; the magic
   link has to return them to the full URL, query string included, or the pending
