@@ -79,7 +79,10 @@ interface RequestOptions {
 }
 
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
-  const url = new URL(`${BASE_URL}/api${path}`);
+  // BASE_URL is empty in the same-origin deployment, so `${BASE_URL}/api${path}`
+  // is a relative string; new URL() needs a base or it throws. window.location.origin
+  // resolves the relative case and is ignored when BASE_URL is already absolute.
+  const url = new URL(`${BASE_URL}/api${path}`, window.location.origin);
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value === undefined || value === null || value === '') continue;
     // `tags` is repeatable with AND semantics, so append rather than set.
