@@ -25,7 +25,13 @@ logger = logging.getLogger(__name__)
 # no route is a genuine 404 and must say so, rather than being handed the SPA
 # shell with a 200 — a mistyped endpoint returning HTML is a miserable thing to
 # debug from the client side, and a connector would see it as a protocol error.
-_API_PREFIXES = ("api/", "mcp", "health", "docs", "redoc", "openapi.json")
+# ``.well-known/`` is included so OAuth/OIDC discovery probes that match no route
+# 404 cleanly instead of being handed the SPA shell with a 200 — a remote
+# connector reads an HTML page at an authorization-server metadata URL as a
+# protocol error and cannot follow the protected-resource pointer to Supabase.
+# The real discovery document at ``/.well-known/oauth-protected-resource/mcp/``
+# is a registered route, matched before this fallback, so it is unaffected.
+_API_PREFIXES = ("api/", "mcp", "health", "docs", "redoc", "openapi.json", ".well-known/")
 
 
 class SinglePageApp(StaticFiles):
