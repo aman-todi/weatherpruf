@@ -9,11 +9,13 @@ image plus two IAM roles, so there is no task or service definition checked in
 here. After the one-time setup below, `.github/workflows/deploy.yml` handles
 every deploy.
 
-**v1 is live** at `https://we-e6c4de001ecb4a2d83d6b9b625171338.ecs.us-east-2.on.aws`
-(the connector URL is that origin with `/mcp` appended). This account is on the
-**new AWS experience** with a managed-IAM project, which shapes several of the
-decisions below — read the "Redos" section at the end before assuming this
-matches a vanilla AWS account.
+**v1 is live** at `https://app.weatherpruf.live` (the connector URL is
+`https://app.weatherpruf.live/mcp/` — **the trailing slash matters**). The
+Express-Mode-generated `https://we-e6c4de001ecb4a2d83d6b9b625171338.ecs.us-east-2.on.aws`
+still resolves to the same service. This account is on the **new AWS experience**
+with a managed-IAM project, which shapes several of the decisions below — read
+the "Redos" section at the end before assuming this matches a vanilla AWS
+account.
 
 ## Architecture & design decisions
 
@@ -219,14 +221,15 @@ GitHub secrets, then `delete-access-key` the old one).
 
 ### 5. Secrets Manager secret
 
-One secret, `weatherpruf/backend`, with exactly these four JSON keys:
+One secret, `weatherpruf/backend`, with exactly these five JSON keys:
 
 ```jsonc
 {
   "DATABASE_URL":            "postgresql://postgres.<project-ref>:<url-encoded-pw>@aws-0-<region>.pooler.supabase.com:5432/postgres",
   "READONLY_DATABASE_URL":   "postgresql://wardrobe_readonly.<project-ref>:<url-encoded-pw>@aws-0-<region>.pooler.supabase.com:5432/postgres",
   "SUPABASE_SERVICE_ROLE_KEY": "<service_role key>",
-  "SUPABASE_JWT_SECRET":     ""
+  "SUPABASE_JWT_SECRET":     "",
+  "MCP_OAUTH_JWT_SIGNING_KEY": "<random 48-byte hex>"
 }
 ```
 
@@ -237,6 +240,10 @@ One secret, `weatherpruf/backend`, with exactly these four JSON keys:
   keys, but the key must still be **present**: the workflow references
   `<arn>:SUPABASE_JWT_SECRET::`, and ECS fails to start the task if a referenced
   JSON key is missing. Empty is fine; absent is not.
+- `MCP_OAUTH_JWT_SIGNING_KEY` signs the reference tokens the MCP OAuth proxy
+  issues to connectors (see "MCP connector OAuth" below). Generate a stable
+  random value (`python -c "import secrets; print(secrets.token_hex(48))"`);
+  rotating it invalidates every live connector token, so clients re-authorize.
 - `DATABASE_URL` and `READONLY_DATABASE_URL` must be different credentials.
 
 ### 6. Repository configuration (`aman-todi/weatherpruf`)
@@ -258,12 +265,70 @@ One secret, `weatherpruf/backend`, with exactly these four JSON keys:
 |---|---|
 | `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
 | `SUPABASE_ANON_KEY` | the anon key — read at **build** time, inlined into the bundle |
-| `PUBLIC_BASE_URL` | the deployed origin (the `*.ecs.us-east-2.on.aws` URL) |
+| `SUPABASE_OAUTH_CLIENT_ID` | the upstream Supabase OAuth client the MCP proxy uses (a public client id — see below) |
+| `PUBLIC_BASE_URL` | the public origin — `https://app.weatherpruf.live` (the `*.ecs.us-east-2.on.aws` URL still works too) |
 | `DAILY_MCP_CALL_LIMIT` | `50` |
 
 There is no `CORS_ALLOW_ORIGINS` and no `VITE_API_BASE_URL`: the frontend is
 served from the same origin as the API, so the client uses relative URLs and no
 cross-origin request is ever made.
+
+## MCP connector OAuth (the app fronts Supabase's OAuth server)
+
+Claude.ai's remote connector expects the **MCP server itself** to be the OAuth
+authorization server: it does Dynamic Client Registration and runs the whole
+flow against *this* origin (`POST /register`, `/authorize`, `/token`,
+`/.well-known/oauth-authorization-server`). It does **not** follow the RFC 9728
+`authorization_servers` pointer to an external server. Supabase is the real
+authorization server, so the app **bridges** the two with a FastMCP `OAuthProxy`
+(`app/mcp_server/auth.py`): it serves those OAuth endpoints at the app origin and
+proxies them to Supabase. `app/main.py` re-exposes the proxy's routes at the root
+because FastMCP registers them on the `/mcp` sub-app.
+
+The token model: a connector holds a FastMCP-issued **reference** token; on each
+`/mcp` request the proxy swaps it for the stored upstream Supabase token and
+re-validates it through the same `SupabaseTokenVerifier` the REST path uses — so
+identity and RLS are unchanged.
+
+Two pieces of setup this needs:
+
+1. **A public upstream client registered with Supabase**, whose `redirect_uri`
+   is `{PUBLIC_BASE_URL}/auth/callback` (i.e. `https://app.weatherpruf.live/auth/callback`).
+   Register it once via Supabase's DCR endpoint and put its (public) client id in
+   the `SUPABASE_OAUTH_CLIENT_ID` variable:
+
+   ```bash
+   curl -sS -X POST https://<project-ref>.supabase.co/auth/v1/oauth/clients/register \
+     -H 'content-type: application/json' -d '{
+       "client_name": "weatherpruf MCP proxy",
+       "redirect_uris": ["https://app.weatherpruf.live/auth/callback"],
+       "grant_types": ["authorization_code","refresh_token"],
+       "response_types": ["code"],
+       "token_endpoint_auth_method": "none"
+     }'
+   ```
+
+2. **`MCP_OAUTH_JWT_SIGNING_KEY`** in the secret (above) — `OAuthProxy` requires
+   a stable signing key when the upstream client is public (has no secret).
+
+When both `SUPABASE_OAUTH_CLIENT_ID` and `MCP_OAUTH_JWT_SIGNING_KEY` are set the
+proxy is active; otherwise the app falls back to advertising Supabase as an
+external authorization server (correct per spec, but Claude's connector can't use
+it). Supabase side: enable the **OAuth 2.1 server** and **Allow Dynamic OAuth
+Apps** (DCR), set the **Authorization Path** to `/oauth/consent`, and add
+`https://app.weatherpruf.live` as a **Site URL** plus `https://app.weatherpruf.live/**`
+under **Redirect URLs** (the `/**` matters — the post-login redirect carries the
+`authorization_id` on a sub-path). See `docs/setup-supabase.md` §5.
+
+**Single task.** The proxy's upstream-token store is per-instance and in-memory,
+so the service is pinned to **one** Fargate task (`max-task-count: 1` in the
+workflow). Consequences: connected users must re-authorize once after each deploy
+(a task restart empties the store), and there is no horizontal scaling. The
+upgrade path is a shared/persistent store (e.g. a Postgres-backed `AsyncKeyValue`)
+which would let `max-task-count` rise again.
+
+To connect: in Claude.ai, add a custom connector at `https://app.weatherpruf.live/mcp/`
+(trailing slash), choose **Sign in now** + **Register automatically**.
 
 ## Deploying
 
@@ -278,11 +343,14 @@ pipeline — apply those yourself, before the deploy that depends on them.
 
 **Impact on users.** Express Mode does a rolling deployment behind the ALB: it
 starts the new task, waits for it to pass `/health`, registers it, then drains
-the old one. No downtime, and the container is stateless (auth is a browser-held
-Supabase JWT, data is in Postgres) so nobody is logged out. A failed deploy over
-a healthy service rolls back and keeps the old task serving. The one catch: the
-frontend bundle is cached in already-open tabs, so users must reload to pick up a
-new build.
+the old one. No downtime for the web app, and web-app auth is a browser-held
+Supabase JWT so nobody is signed out there. Two caveats: the frontend bundle is
+cached in already-open tabs, so users must reload to pick up a new build; and the
+**MCP connector must be re-authorized after each deploy**, because the OAuth
+proxy's in-memory token store is emptied when the single task restarts (see "MCP
+connector OAuth"). A failed deploy over a healthy service rolls back and keeps the
+old task serving. **Re-check the ALB host-header rule after each deploy** — see
+"Custom domain and TLS".
 
 ## `PUBLIC_BASE_URL` — the first-deploy chicken-and-egg
 
@@ -326,13 +394,49 @@ reach the container. An unauthenticated `GET /api/categories` should return a
 JSON `401` (proof the frontend can reach its own API), and `/api/<nonsense>`
 should return a JSON `404`, not the SPA shell.
 
-## Custom domain and TLS (optional)
+## Custom domain and TLS — `app.weatherpruf.live` (as built)
 
 Express Mode's generated URL is already HTTPS with a managed certificate, so a
-custom domain is polish, not a prerequisite; shipping v1 on the generated URL is
-fine. For a custom domain: request an ACM certificate in `us-east-2`, attach it
-to the service's load balancer, point a Route 53 alias at the load balancer, then
-update `PUBLIC_BASE_URL` (and the Supabase Site/Redirect URLs) and redeploy.
+custom domain is polish, not a prerequisite. v1 uses `app.weatherpruf.live`,
+added **on the existing Express Mode ALB** (not a separate distribution) so both
+hostnames serve the same service. What was done, all in `us-east-2`:
+
+1. **ACM certificate** for `app.weatherpruf.live`, DNS-validated and
+   auto-renewing:
+   `arn:aws:acm:us-east-2:038223566275:certificate/132d6a8b-cc81-4df3-8eff-68c37cd581c5`.
+   Its validation record **must stay in DNS forever** or auto-renewal breaks:
+   `_fd94470a1c8e3ec497d23bd7e4f2e8a2.app.weatherpruf.live` CNAME
+   `_d4479f9cff01885681a349d79ad4fd73.wzccmgtwzk.acm-validations.aws`.
+2. **DNS** (Squarespace, not Route 53): `app` CNAME →
+   `ecs-express-gateway-alb-1feb04cc-1253170358.us-east-2.elb.amazonaws.com`.
+3. **443 listener** — the cert added alongside the ECS-managed `…on.aws` cert
+   (SNI picks the right one).
+4. **Host-header rule** — forwards **both** `…on.aws` and `app.weatherpruf.live`
+   to the target group. Keep both values so the generated URL keeps working.
+5. **New `:80` listener** — `301`-redirects to HTTPS.
+6. Then `PUBLIC_BASE_URL` → `https://app.weatherpruf.live` and the Supabase
+   Site/Redirect URLs updated (see "MCP connector OAuth"), and redeploy.
+
+Key ARNs: ALB `…:loadbalancer/app/ecs-express-gateway-alb-1feb04cc/0a0145f04d6332b8`;
+443 listener `…/a01db0fb6e5579a0`; ALB SG `sg-0bec86e4820a0b43e`; task SG
+`sg-0433edf7e1df78098`.
+
+> **Drift after a deploy.** `UpdateExpressGatewayService` can rewrite the
+> host-header rule and drop `app.weatherpruf.live`. Re-check (and re-apply if
+> needed) after every deploy — the rule ARN can change, so discover it
+> dynamically:
+>
+> ```bash
+> export AWS_PROFILE=agent-toolkit AWS_REGION=us-east-2
+> LISTENER=arn:aws:elasticloadbalancing:us-east-2:038223566275:listener/app/ecs-express-gateway-alb-1feb04cc/0a0145f04d6332b8/a01db0fb6e5579a0
+> RULE=$(aws elbv2 describe-rules --listener-arn "$LISTENER" \
+>   --query "Rules[?Actions[0].Type=='forward'].RuleArn | [0]" --output text)
+> aws elbv2 modify-rule --rule-arn "$RULE" \
+>   --conditions Field=host-header,HostHeaderConfig="{Values=[we-e6c4de001ecb4a2d83d6b9b625171338.ecs.us-east-2.on.aws,app.weatherpruf.live]}"
+> ```
+>
+> The cert on the 443 listener and the `:80` redirect listener are additive and
+> survive; the host-header rule is the one to watch.
 
 ## Rotating credentials
 
@@ -421,3 +525,22 @@ experience surfaced the following; each is now folded into the steps above.
     keys, so the value is empty, but the key must exist in the secret JSON or ECS
     refuses to start the task on the missing `<arn>:SUPABASE_JWT_SECRET::`
     reference.
+
+11. **The MCP connector needs same-origin OAuth (OAuth proxy).** The original
+    design used FastMCP's `RemoteAuthProvider`, which only *advertises* Supabase
+    as the authorization server via RFC 9728. Claude's connector ignores that
+    pointer and does DCR + the whole OAuth flow against the MCP server's own
+    origin — it `POST`ed `/register` to the app (404/405) and could not register.
+    The app now runs a FastMCP `OAuthProxy` that serves `/authorize`, `/token`,
+    `/register` and the authorization-server metadata at this origin and bridges
+    them to Supabase (see "MCP connector OAuth"). This added the
+    `SUPABASE_OAUTH_CLIENT_ID` variable, the `MCP_OAUTH_JWT_SIGNING_KEY` secret,
+    a Supabase upstream client, and the single-task pin. (An interim fix — 404ing
+    unknown `/.well-known/` paths so the SPA fallback stops answering discovery
+    probes with HTML — is kept: it is correct regardless.)
+
+12. **Custom domain on the existing ALB, via Squarespace, not Route 53.** DNS is
+    on Squarespace, so the domain is a CNAME to the ALB rather than a Route 53
+    alias, and the cert/listener/host-rule were added to the Express Mode ALB in
+    place. The host-header rule is subject to drift on redeploys — see "Custom
+    domain and TLS".
