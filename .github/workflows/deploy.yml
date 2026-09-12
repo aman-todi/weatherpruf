@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: us-east-2
   ECR_REPOSITORY: weatherpruf-backend
   SERVICE_NAME: weatherpruf-backend
 
