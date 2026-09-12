@@ -170,7 +170,7 @@ async def test_oauth_discovery_is_reachable_where_it_is_advertised(monkeypatch) 
 
     mcp_app = build_mcp_app()
     assert mcp_app is not None
-    advertised = [route.path for route in mcp_app.well_known_routes]
+    advertised = [route.path for route in mcp_app.root_oauth_routes]
     assert advertised, "no discovery routes were exposed for the parent to publish"
     assert any(path.startswith("/.well-known/oauth-protected-resource") for path in advertised), (
         advertised
