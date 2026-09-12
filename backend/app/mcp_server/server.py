@@ -124,24 +124,30 @@ def build_mcp_app():
 
     app = _LifespanOnFirstRequest(http_app)
 
-    # RFC 9728 puts a protected resource's discovery document at the *origin
-    # root* — /.well-known/oauth-protected-resource/mcp/ — not under the
-    # resource's own path. FastMCP registers it on this sub-app, which is
-    # mounted at /mcp, so as mounted it would only ever be reachable at
-    # /mcp/.well-known/..., while the 401 challenge correctly advertises the
-    # root URL. A connector follows the advertised URL, 404s, and never starts
-    # the OAuth flow.
+    # The auth provider registers its OAuth endpoints on this sub-app: not just
+    # the /.well-known/* discovery documents (RFC 9728 puts them at the *origin
+    # root*, e.g. /.well-known/oauth-protected-resource/mcp/), but — when the
+    # OAuth proxy is active — /authorize, /token, /register, the upstream
+    # /auth/callback and the /consent screen too. A remote connector expects all
+    # of these at the origin root, but the sub-app is mounted at /mcp, so as
+    # mounted they would only answer under /mcp/... . A connector following the
+    # advertised root URL would 404 and never start the OAuth flow.
     #
-    # So the routes are handed to the parent to re-expose at the root. Kept as
-    # an attribute rather than a change to build_mcp_app's return type, so a
-    # caller that does not know about it still gets a working ASGI app.
-    app.well_known_routes = [
+    # So these routes are handed to the parent to re-expose at the root. The
+    # /mcp transport endpoint itself (path "/") is deliberately excluded — it
+    # stays at /mcp. Kept as an attribute rather than a change to
+    # build_mcp_app's return type, so a caller that does not know about it still
+    # gets a working ASGI app.
+    _root_oauth_paths = {"/authorize", "/token", "/register", "/consent"}
+    app.root_oauth_routes = [
         route
         for route in http_app.routes
         if str(getattr(route, "path", "")).startswith("/.well-known/")
+        or str(getattr(route, "path", "")).startswith("/auth/")
+        or str(getattr(route, "path", "")) in _root_oauth_paths
     ]
     logger.info(
-        "MCP server built; /mcp is served, %d discovery route(s) to publish at the root",
-        len(app.well_known_routes),
+        "MCP server built; /mcp is served, %d OAuth route(s) to publish at the root",
+        len(app.root_oauth_routes),
     )
     return app

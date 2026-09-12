@@ -140,7 +140,11 @@ jobs:
           cpu: "512"
           memory: "1024"
           min-task-count: 1
-          max-task-count: 2
+          # Pinned to a single task for v1: the MCP OAuth proxy keeps a
+          # per-instance store of upstream tokens, so a second task would not
+          # recognise tokens minted by the first. Move to a shared/persistent
+          # store before raising this. See infra/README.md.
+          max-task-count: 1
           # Non-sensitive configuration only. Anything secret goes through
           # `secrets` below so it never appears in the task definition, the
           # console, or these logs.
@@ -149,6 +153,7 @@ jobs:
               {"name": "ENVIRONMENT", "value": "production"},
               {"name": "PUBLIC_BASE_URL", "value": "${{ vars.PUBLIC_BASE_URL }}"},
               {"name": "SUPABASE_URL", "value": "${{ vars.SUPABASE_URL }}"},
+              {"name": "SUPABASE_OAUTH_CLIENT_ID", "value": "${{ vars.SUPABASE_OAUTH_CLIENT_ID }}"},
               {"name": "DAILY_MCP_CALL_LIMIT", "value": "${{ vars.DAILY_MCP_CALL_LIMIT }}"}
             ]
           # Each entry is a single JSON key inside the one Secrets Manager
@@ -161,5 +166,6 @@ jobs:
               {"name": "DATABASE_URL", "valueFrom": "${{ secrets.AWS_APP_SECRET_ARN }}:DATABASE_URL::"},
               {"name": "READONLY_DATABASE_URL", "valueFrom": "${{ secrets.AWS_APP_SECRET_ARN }}:READONLY_DATABASE_URL::"},
               {"name": "SUPABASE_SERVICE_ROLE_KEY", "valueFrom": "${{ secrets.AWS_APP_SECRET_ARN }}:SUPABASE_SERVICE_ROLE_KEY::"},
-              {"name": "SUPABASE_JWT_SECRET", "valueFrom": "${{ secrets.AWS_APP_SECRET_ARN }}:SUPABASE_JWT_SECRET::"}
+              {"name": "SUPABASE_JWT_SECRET", "valueFrom": "${{ secrets.AWS_APP_SECRET_ARN }}:SUPABASE_JWT_SECRET::"},
+              {"name": "MCP_OAUTH_JWT_SIGNING_KEY", "valueFrom": "${{ secrets.AWS_APP_SECRET_ARN }}:MCP_OAUTH_JWT_SIGNING_KEY::"}
             ]

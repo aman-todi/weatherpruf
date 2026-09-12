@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from fastmcp.server.auth import AccessToken, RemoteAuthProvider
+from fastmcp.server.auth import AccessToken, OAuthProxy, RemoteAuthProvider
 from fastmcp.server.auth import TokenVerifier as FastMCPTokenVerifier
 from fastmcp.server.dependencies import get_access_token
 
@@ -75,29 +75,35 @@ def _scopes_from_claims(claims: dict) -> list[str]:
 def build_auth_provider(settings: Settings):
     """The provider to hand FastMCP.
 
-    With ``SUPABASE_URL`` set the verifier is wrapped in a
-    ``RemoteAuthProvider`` so ``/.well-known/oauth-protected-resource`` names
-    Supabase as the authorization server — the discovery step Claude.ai's remote
-    connector setup performs before it can run the OAuth flow.
+    Three modes, chosen by configuration:
 
-    Without it (purely local development, where tokens are HS256-signed by
-    ``scripts/make_test_token.py``) there is no authorization server to point
-    at, so the bare verifier is used. Tokens are still verified identically;
-    only discovery is missing, and there is nothing to discover.
+    1. **OAuth proxy** (``mcp_oauth_proxy_enabled``): the app serves its own
+       ``/authorize``, ``/token``, ``/register`` and authorization-server
+       metadata at this origin, proxying them to Supabase's OAuth 2.1 server.
+       This is what Claude.ai's remote connector needs — it performs Dynamic
+       Client Registration and runs the whole OAuth flow against the MCP
+       server's own origin, rather than following the RFC 9728
+       ``authorization_servers`` pointer to Supabase. The client holds a
+       FastMCP-issued reference token; on every ``/mcp`` request the proxy swaps
+       it for the stored upstream Supabase token and re-validates it through the
+       same ``SupabaseTokenVerifier``, so identity and RLS are unchanged.
 
-    The two URLs are deliberately different. ``base_url`` is the site root
-    because RFC 9728 well-known URIs are origin-rooted: the discovery document
-    lives at ``/.well-known/oauth-protected-resource/mcp/``, at the top of the
-    host, not under the resource's own path. ``resource_base_url`` is the
-    ``/mcp`` URL, which is the resource actually being protected — it is what
-    gets named as ``resource`` in that document and what supplies the ``/mcp``
-    segment the well-known path has appended to it.
+    2. **Remote authorization server** (``SUPABASE_URL`` set, proxy not
+       configured): the verifier is wrapped in ``RemoteAuthProvider`` so
+       ``/.well-known/oauth-protected-resource`` merely *names* Supabase as the
+       authorization server. Correct per spec and enough for a client that
+       follows the pointer, but not Claude's connector.
 
-    Getting this wrong is invisible until a connector tries to authenticate:
-    the 401's ``WWW-Authenticate`` challenge points at the advertised URL, and
-    if the document is not served there the client 404s and the OAuth flow
-    never starts. ``app.main`` re-exposes these routes at the root for exactly
-    that reason — see ``build_mcp_app``.
+    3. **Bare verifier** (no ``SUPABASE_URL``, i.e. local development where
+       tokens are HS256-signed by ``scripts/make_test_token.py``): tokens are
+       still verified identically; there is simply no authorization server to
+       advertise.
+
+    ``base_url`` is the site root because the discovery documents are
+    origin-rooted; ``resource_base_url`` is the ``/mcp`` URL, the resource being
+    protected. ``app.main`` re-exposes the provider's routes at the root — see
+    ``build_mcp_app`` — because the provider registers them on a sub-app mounted
+    at ``/mcp``, while a connector expects them at the origin root.
     """
     verifier = SupabaseTokenVerifier(base_url=settings.public_base_url)
 
@@ -108,6 +114,35 @@ def build_auth_provider(settings: Settings):
         )
         return verifier
 
+    if settings.mcp_oauth_proxy_enabled:
+        logger.info(
+            "MCP auth: OAuth proxy fronting Supabase (%s) from %s",
+            settings.token_issuer,
+            settings.public_base_url,
+        )
+        return OAuthProxy(
+            upstream_authorization_endpoint=settings.upstream_authorization_endpoint,
+            upstream_token_endpoint=settings.upstream_token_endpoint,
+            # A public client pre-registered with Supabase; no secret, so a
+            # stable jwt_signing_key is required (OAuthProxy enforces this).
+            upstream_client_id=settings.supabase_oauth_client_id,
+            upstream_client_secret=None,
+            token_endpoint_auth_method="none",
+            jwt_signing_key=settings.mcp_oauth_jwt_signing_key,
+            token_verifier=verifier,
+            base_url=settings.public_base_url,
+            resource_base_url=settings.mcp_url,
+            # Keep the consent screen on: every DCR client shares the one
+            # upstream client id, so this per-client consent is what guards
+            # against a confused-deputy replay. The user also approves once on
+            # Supabase's own /oauth/consent screen further along the flow.
+            require_authorization_consent=True,
+        )
+
+    logger.info(
+        "MCP auth: advertising Supabase (%s) as an external authorization server",
+        settings.token_issuer,
+    )
     return RemoteAuthProvider(
         token_verifier=verifier,
         authorization_servers=[settings.token_issuer],

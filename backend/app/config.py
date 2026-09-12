@@ -31,6 +31,27 @@ class Settings(BaseSettings):
     # real connector token.
     expected_token_audience: str = ""
 
+    # --- MCP connector OAuth ------------------------------------------------
+    # A remote MCP client (Claude.ai) does Dynamic Client Registration and runs
+    # the OAuth flow against THIS origin — it treats the MCP server as the
+    # authorization server rather than following a pointer to an external one.
+    # When both values below are set, /mcp is wired with a FastMCP OAuthProxy
+    # that serves /authorize, /token, /register and the authorization-server
+    # metadata here and bridges them to Supabase's OAuth 2.1 server. When they
+    # are not, it falls back to advertising Supabase as an external
+    # authorization server (RemoteAuthProvider), which suits clients that follow
+    # RFC 9728 authorization_servers but not Claude's connector.
+    #
+    # The upstream client is a *public* client pre-registered with Supabase whose
+    # redirect_uri is {public_base_url}/auth/callback. A client id is public, so
+    # it travels as an environment variable, not a secret.
+    supabase_oauth_client_id: str = ""
+    # Stable signing key for the FastMCP JWTs the proxy issues to clients.
+    # Required by OAuthProxy for a public (secret-less) upstream client. Secret —
+    # Secrets Manager only. Rotating it invalidates every live connector token,
+    # so clients must re-authorize.
+    mcp_oauth_jwt_signing_key: str = ""
+
     # --- Database -----------------------------------------------------------
     # The application role. Full DML on the user-scoped tables; every request
     # runs inside `set local role authenticated` so RLS still applies.
@@ -91,6 +112,21 @@ class Settings(BaseSettings):
     @property
     def mcp_url(self) -> str:
         return f"{self.public_base_url.rstrip('/')}/mcp"
+
+    @property
+    def upstream_authorization_endpoint(self) -> str:
+        return f"{self.token_issuer}/oauth/authorize"
+
+    @property
+    def upstream_token_endpoint(self) -> str:
+        return f"{self.token_issuer}/oauth/token"
+
+    @property
+    def mcp_oauth_proxy_enabled(self) -> bool:
+        """Whether /mcp should front Supabase's OAuth server from this origin."""
+        return bool(
+            self.supabase_url and self.supabase_oauth_client_id and self.mcp_oauth_jwt_signing_key
+        )
 
 
 @lru_cache
