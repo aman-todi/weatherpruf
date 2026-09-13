@@ -21,6 +21,11 @@ const TUTORIALS = [
     title: 'Pick an outfit by prompt',
     blurb: 'Ask what to wear and let it choose from what you own, with the weather in mind.',
   },
+  {
+    src: '/tutorials/closet-view.mp4',
+    title: 'Browse your closet',
+    blurb: 'View and correct what you own in the web app — the source of truth the assistant reads from.',
+  },
 ];
 
 export function TutorialsPage() {

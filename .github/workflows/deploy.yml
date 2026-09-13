@@ -154,7 +154,8 @@ jobs:
               {"name": "PUBLIC_BASE_URL", "value": "${{ vars.PUBLIC_BASE_URL }}"},
               {"name": "SUPABASE_URL", "value": "${{ vars.SUPABASE_URL }}"},
               {"name": "SUPABASE_OAUTH_CLIENT_ID", "value": "${{ vars.SUPABASE_OAUTH_CLIENT_ID }}"},
-              {"name": "DAILY_MCP_CALL_LIMIT", "value": "${{ vars.DAILY_MCP_CALL_LIMIT }}"}
+              {"name": "DAILY_MCP_CALL_LIMIT", "value": "${{ vars.DAILY_MCP_CALL_LIMIT }}"},
+              {"name": "MAX_USERS", "value": "${{ vars.MAX_USERS }}"}
             ]
           # Each entry is a single JSON key inside the one Secrets Manager
           # secret described in infra/README.md. DATABASE_URL and
