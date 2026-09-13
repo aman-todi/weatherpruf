@@ -22,6 +22,32 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
+class NormalizeMcpPath:
+    """Serve the MCP transport at both ``/mcp`` and ``/mcp/``.
+
+    A remote client opens the Streamable HTTP session at the connector URL with
+    the trailing slash stripped (``POST /mcp``), but FastMCP's transport is
+    mounted at ``/mcp/`` — bare ``/mcp`` returns 405/404 and the session never
+    starts, so the connector reports "no MCP server found" even after OAuth
+    succeeds. A redirect is not an option (clients do not reliably re-POST a body
+    across a 307/308), so rewrite the *exact* path ``/mcp`` to ``/mcp/`` in the
+    ASGI scope before routing. Only the exact path is touched — ``/mcp/anything``
+    and ``/mcpX`` are left alone.
+    """
+
+    def __init__(self, app: object) -> None:
+        self._app = app
+
+    async def __call__(self, scope: dict, receive: object, send: object) -> None:
+        if scope.get("type") == "http" and scope.get("path") == "/mcp":
+            scope = dict(scope)
+            scope["path"] = "/mcp/"
+            raw = scope.get("raw_path")
+            if isinstance(raw, (bytes, bytearray)) and not raw.endswith(b"/"):
+                scope["raw_path"] = bytes(raw) + b"/"
+        await self._app(scope, receive, send)  # type: ignore[operator]
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
@@ -54,6 +80,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Runs before routing so a connector's slash-stripped POST /mcp reaches the
+    # transport mounted at /mcp/.
+    application.add_middleware(NormalizeMcpPath)
 
     @application.exception_handler(WardrobeError)
     async def _wardrobe_error_handler(_: Request, exc: WardrobeError) -> JSONResponse:
