@@ -1,12 +1,13 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { NavMenu } from './NavMenu';
 import { resetCategoryCache } from '../hooks/useCategories';
 
+// Settings lives in the "more" menu (see NavMenu) alongside the legal pages.
 const NAV = [
   { to: '/', label: 'Closet', end: true },
   { to: '/connect', label: 'Connect' },
   { to: '/tutorials', label: 'Tutorials' },
-  { to: '/settings', label: 'Settings' },
 ];
 
 export function Layout() {
@@ -48,6 +49,7 @@ export function Layout() {
             >
               Sign out
             </button>
+            <NavMenu />
           </div>
         </div>
       </header>

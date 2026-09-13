@@ -8,8 +8,10 @@ import { ConnectPage } from './pages/ConnectPage';
 import { ConsentPage } from './pages/ConsentPage';
 import { CapacityNotice } from './pages/CapacityNotice';
 import { LoginPage } from './pages/LoginPage';
+import { PrivacyPage } from './pages/PrivacyPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SetupNotice } from './pages/SetupNotice';
+import { TermsPage } from './pages/TermsPage';
 import { TutorialsPage } from './pages/TutorialsPage';
 import { CONSENT_PATH } from './lib/oauth';
 import { api, isApiError } from './lib/api';
@@ -40,28 +42,38 @@ function Routed() {
     );
   }
 
-  if (!session) return <LoginPage />;
-
   return (
     <Routes>
-      {/* Outside <Layout> and the admission gate: a consent screen reached
-          mid-flow from Claude.ai should not offer the closet's navigation, and
-          the OAuth handoff has its own gating. React Router ranks this above the
-          catch-all below by specificity, not by order. */}
-      <Route path={CONSENT_PATH} element={<ConsentPage />} />
-      <Route
-        element={
-          <AdmissionGate>
-            <Layout />
-          </AdmissionGate>
-        }
-      >
-        <Route index element={<ClosetPage />} />
-        <Route path="connect" element={<ConnectPage />} />
-        <Route path="tutorials" element={<TutorialsPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
+      {/* Public: the legal pages must be readable without an account (Google's
+          OAuth review and logged-out visitors both need them), so they sit
+          above the auth gate. React Router ranks these by specificity, so they
+          win over the catch-all regardless of order. */}
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+
+      {session ? (
+        <>
+          {/* Outside <Layout> and the admission gate: a consent screen reached
+              mid-flow from Claude.ai should not offer the closet's navigation,
+              and the OAuth handoff has its own gating. */}
+          <Route path={CONSENT_PATH} element={<ConsentPage />} />
+          <Route
+            element={
+              <AdmissionGate>
+                <Layout />
+              </AdmissionGate>
+            }
+          >
+            <Route index element={<ClosetPage />} />
+            <Route path="connect" element={<ConnectPage />} />
+            <Route path="tutorials" element={<TutorialsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </>
+      ) : (
+        <Route path="*" element={<LoginPage />} />
+      )}
     </Routes>
   );
 }
