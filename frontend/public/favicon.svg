@@ -1,0 +1,18 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="weatherpruf">
+  <defs>
+    <linearGradient id="wp-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a8ab8"/>
+      <stop offset="1" stop-color="#2f5d8a"/>
+    </linearGradient>
+  </defs>
+  <!-- sky tile -->
+  <rect x="3" y="3" width="58" height="58" rx="15" fill="url(#wp-sky)"/>
+  <!-- raindrop as the hanger's hook -->
+  <path d="M32 12.5c3.4 4.6 5.4 7 5.4 9.3a5.4 5.4 0 0 1-10.8 0c0-2.3 2-4.7 5.4-9.3z"
+        fill="#eaf3fb"/>
+  <!-- hanger: short stem, two shoulders, and the bar -->
+  <g fill="none" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 26.5v3.2L16.5 41.5h31L32 29.7"/>
+    <path d="M16.5 41.5h31"/>
+  </g>
+</svg>
