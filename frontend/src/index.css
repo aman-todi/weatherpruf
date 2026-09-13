@@ -926,6 +926,34 @@ input:disabled {
   margin: 0;
 }
 
+.auth-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+}
+
+.auth-google svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--ink-faint);
+  font-size: 0.8rem;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
 /* ---------- Connect ---------- */
 
 .copy-field {

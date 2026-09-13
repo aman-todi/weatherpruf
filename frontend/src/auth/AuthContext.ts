@@ -7,6 +7,8 @@ export interface AuthValue {
   loading: boolean;
   /** Sends a magic link. Resolves on success, rejects with a readable message. */
   signIn: (email: string) => Promise<void>;
+  /** Starts Google OAuth; on success the browser is redirected away to Google. */
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 

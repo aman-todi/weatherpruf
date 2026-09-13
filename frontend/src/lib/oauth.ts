@@ -12,14 +12,15 @@ export function isConsentPath(): boolean {
 }
 
 /**
- * Where a magic link should land the user.
+ * Where a sign-in should land the user — used for both the magic link
+ * (`emailRedirectTo`) and Google OAuth (`redirectTo`).
  *
  * Normally the app root. On the consent screen it must be the *current* URL,
  * query string and all: the `authorization_id` identifies the pending OAuth
- * request, and a link back to the bare origin drops it. The user would arrive
- * signed in, at the closet, with Claude.ai still waiting on a redirect that
- * never comes.
+ * request, and a redirect back to the bare origin drops it. The user would
+ * arrive signed in, at the closet, with Claude.ai still waiting on a redirect
+ * that never comes.
  */
-export function magicLinkRedirect(): string {
+export function postLoginRedirect(): string {
   return isConsentPath() ? window.location.href : window.location.origin;
 }

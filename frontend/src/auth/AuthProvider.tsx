@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { magicLinkRedirect } from '../lib/oauth';
+import { postLoginRedirect } from '../lib/oauth';
 import { supabase } from '../lib/supabase';
 import { AuthContext, type AuthValue } from './AuthContext';
 
@@ -33,7 +33,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (email: string) => {
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: magicLinkRedirect() },
+      options: { emailRedirectTo: postLoginRedirect() },
+    });
+    if (error) throw new Error(error.message);
+  }, []);
+
+  const signInWithGoogle = useCallback(async () => {
+    // Sends no email, so it is unaffected by Supabase's auth-email rate limit.
+    // On success supabase-js redirects the browser to Google; `redirectTo`
+    // brings the user back here (or to the pending consent request) where
+    // `detectSessionInUrl` completes the sign-in via `onAuthStateChange`.
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: postLoginRedirect() },
     });
     if (error) throw new Error(error.message);
   }, []);
@@ -44,8 +56,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthValue>(
-    () => ({ session, loading, signIn, signOut }),
-    [session, loading, signIn, signOut],
+    () => ({ session, loading, signIn, signInWithGoogle, signOut }),
+    [session, loading, signIn, signInWithGoogle, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
