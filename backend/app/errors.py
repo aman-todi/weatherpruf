@@ -50,6 +50,13 @@ class UsageLimitExceededError(WardrobeError):
     http_status = 429
 
 
+class AtCapacityError(WardrobeError):
+    """The user is beyond the sign-up cap (config ``max_users``)."""
+
+    code = "at_capacity"
+    http_status = 403
+
+
 class UnsafeQueryError(WardrobeError):
     """The assistant's ``where_clause`` did not survive validation (spec §4.1)."""
 

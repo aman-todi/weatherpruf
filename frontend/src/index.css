@@ -191,6 +191,16 @@ code {
   height: 40px;
 }
 
+.tutorial__video {
+  display: block;
+  width: 100%;
+  max-height: 72vh;
+  margin-top: 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent-soft);
+  background: #000;
+}
+
 .app-nav {
   display: flex;
   gap: 0.25rem;

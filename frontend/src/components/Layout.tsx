@@ -5,6 +5,7 @@ import { resetCategoryCache } from '../hooks/useCategories';
 const NAV = [
   { to: '/', label: 'Closet', end: true },
   { to: '/connect', label: 'Connect' },
+  { to: '/tutorials', label: 'Tutorials' },
   { to: '/settings', label: 'Settings' },
 ];
 

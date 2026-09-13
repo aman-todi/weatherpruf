@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     db_pool_max_size: int = 5
 
     # --- Limits (spec §5) ---------------------------------------------------
+    # Capacity: admit the first max_users users by sign-up order; anyone beyond
+    # that sees a "not taking new sign-ups" message. Existing users are always
+    # admitted regardless of the current total (admission is by sign-up rank).
+    max_users: int = 200
     max_items_per_user: int = 200
     max_colors_per_item: int = 5
     max_batch_items: int = 20

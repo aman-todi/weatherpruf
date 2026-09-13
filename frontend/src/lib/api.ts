@@ -37,6 +37,7 @@ export type ApiErrorCode =
   | 'not_found'
   | 'daily_limit_reached'
   | 'unsafe_query'
+  | 'at_capacity'
   | 'unauthorized'
   | 'network_error'
   | 'error';

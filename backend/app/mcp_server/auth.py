@@ -25,6 +25,8 @@ from fastmcp.server.dependencies import get_access_token
 
 from app.auth import AuthError, authenticate_bearer
 from app.config import Settings
+from app.errors import AtCapacityError
+from app.services.admission import ensure_capacity
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,14 @@ class SupabaseTokenVerifier(FastMCPTokenVerifier):
             # Info, not warning: an expired token on a long-lived connector
             # session is routine, and the client will refresh and retry.
             logger.info("rejected MCP bearer token: %s", exc)
+            return None
+
+        # A user beyond the sign-up cap gets no tools either. Rejecting here turns
+        # into a 401, the same as any other unverifiable token.
+        try:
+            await ensure_capacity(user.user_id)
+        except AtCapacityError:
+            logger.info("rejected MCP request from capped user %s", user.user_id)
             return None
 
         scopes = _scopes_from_claims(user.claims)
