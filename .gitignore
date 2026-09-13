@@ -20,3 +20,6 @@ dist/
 # Local
 *.log
 .DS_Store
+
+# Walkthrough recording
+.mov/
