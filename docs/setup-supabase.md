@@ -297,15 +297,32 @@ secrets. The `service_role` key must never reach this build.
 
 Once the backend is deployed over HTTPS (see [`infra/README.md`](../infra/README.md)):
 
-1. In Claude.ai, add a custom connector pointing at `https://<your-domain>/mcp`.
-2. Complete the OAuth flow — Claude registers itself via DCR, you sign in with
-   Supabase and approve.
+1. In Claude.ai, add a custom connector pointing at `https://<your-domain>/mcp/`
+   — **with the trailing slash** (the app serves both, but Claude keeps whatever
+   you enter). Choose **Sign in now**; either **Register automatically** (DCR) or
+   **Use Claude's published identity** (CIMD) works.
+2. Complete the OAuth flow — the app runs a FastMCP **OAuth proxy** that fronts
+   Supabase, so Claude registers and signs in against *this* origin, not Supabase
+   directly (see `infra/README.md` → "MCP connector OAuth"). You approve on the
+   proxy consent screen, sign in with Supabase, and approve on the app's own
+   consent screen.
 3. Confirm it works by asking Claude something that needs the closet, e.g.
    "what's in my closet?", which should call `get_closet_summary`.
 
+**Do the first connect on desktop** (claude.ai in a browser, or the desktop
+app). The whole flow stays in one browser there — the magic-link sign-in returns
+to the same place and the callback lands back in the initiating surface.
+Connecting from a phone can bounce across browsers (magic-link email → a
+different browser drops the OAuth binding cookie) or hand the callback to
+claude.ai web instead of the mobile app; connectors sync to your account, so
+connect on desktop and the phone picks it up.
+
 The web app's "Connect your assistant" page shows this URL, taken from
-`PUBLIC_BASE_URL` with `/mcp` appended — so set that variable to the URL people
-will actually paste, not the ECS-generated one, if you have a custom domain.
+`PUBLIC_BASE_URL` (`https://app.weatherpruf.live`) with `/mcp` appended.
+
+> **After each deploy, reconnect once.** The OAuth proxy keeps its token store in
+> memory on the single task, so a deploy (which restarts the task) invalidates
+> live connector tokens. Re-approve the connector after deploying.
 
 **Budget your first test.** The daily cap is 50 assistant calls per user
 (`DAILY_MCP_CALL_LIMIT`), which leaves room for a full end-to-end walkthrough
