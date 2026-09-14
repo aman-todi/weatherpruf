@@ -19,7 +19,7 @@ export function Layout() {
         <div className="app-header__inner">
           <NavLink to="/" className="brand" end>
             <span className="brand__mark" aria-hidden />
-            weatherpruf
+            Weatherpruf
           </NavLink>
 
           <nav className="app-nav" aria-label="Main">

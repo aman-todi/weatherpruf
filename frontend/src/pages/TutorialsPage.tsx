@@ -3,7 +3,7 @@ const TUTORIALS = [
     src: '/tutorials/connect-from-claude.mp4',
     title: 'Connect from Claude',
     blurb:
-      'Add weatherpruf as a custom connector in Claude and sign in, so the assistant can read and update your closet.',
+      'Add Weatherpruf as a custom connector in Claude and sign in, so the assistant can read and update your closet.',
   },
   {
     src: '/tutorials/batch-add-prompt.mp4',

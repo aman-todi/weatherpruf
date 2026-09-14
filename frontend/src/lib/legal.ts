@@ -6,9 +6,9 @@
  *  - LEGAL_ENTITY is the person or company that operates the service.
  *  - GOVERNING_LAW is the jurisdiction whose law governs the Terms.
  */
-export const APP_NAME = 'weatherpruf';
+export const APP_NAME = 'Weatherpruf';
 export const CONTACT_EMAIL = 'aman.todi01@gmail.com';
-export const LEGAL_ENTITY = 'the weatherpruf team';
+export const LEGAL_ENTITY = 'the Weatherpruf team';
 export const GOVERNING_LAW = 'the United States';
 
 /** Shown as "Last updated" on both documents. Bump when the text changes. */

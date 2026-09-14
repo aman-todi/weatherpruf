@@ -22,7 +22,7 @@ export function LegalPage({
         <div className="legal-header__inner">
           <Link to="/" className="brand">
             <span className="brand__mark" aria-hidden />
-            weatherpruf
+            Weatherpruf
           </Link>
           <nav className="legal-header__links" aria-label="Legal">
             <Link to="/privacy">Privacy</Link>

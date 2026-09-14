@@ -12,7 +12,7 @@ export function CapacityNotice() {
     <div className="auth-page">
       <div className="auth-card">
         <span className="brand__mark brand__mark--large" aria-hidden />
-        <h1>weatherpruf is full right now</h1>
+        <h1>Weatherpruf is full right now</h1>
         <p className="auth-card__tagline">
           Sorry — we’re not taking new sign-ups at the moment. Please check back in a few weeks.
         </p>

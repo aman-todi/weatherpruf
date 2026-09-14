@@ -42,7 +42,7 @@ export function ConnectPage() {
             Open <strong>Settings → Connectors</strong> in Claude.ai and choose{' '}
             <strong>Add custom connector</strong>.
           </li>
-          <li>Paste the URL above and give it a name — “weatherpruf” does the job.</li>
+          <li>Paste the URL above and give it a name — “Weatherpruf” does the job.</li>
           <li>
             Claude sends you through a sign-in step. Use the same email you used here; that is what
             ties the connector to your closet.

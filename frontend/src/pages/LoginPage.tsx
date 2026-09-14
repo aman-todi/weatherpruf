@@ -46,7 +46,7 @@ export function LoginPage() {
     <div className="auth-page">
       <div className="auth-card">
         <span className="brand__mark brand__mark--large" aria-hidden />
-        <h1>weatherpruf</h1>
+        <h1>Weatherpruf</h1>
         <p className="auth-card__tagline">
           {forConsent
             ? 'Sign in to finish connecting your assistant. The link brings you back to the approval screen.'
