@@ -27,7 +27,7 @@ export function LandingPage() {
       <header className="landing__nav">
         <span className="brand">
           <span className="brand__mark" aria-hidden />
-          weatherpruf
+          Weatherpruf
         </span>
         <Link to="/login" className="button button--quiet">
           Sign in
@@ -37,7 +37,7 @@ export function LandingPage() {
       <main className="landing__hero">
         <h1 className="landing__title">Your closet, catalogued once — then dressed every morning.</h1>
         <p className="landing__lede">
-          weatherpruf keeps a catalogue of everything you own and suggests what to wear based on the
+          Weatherpruf keeps a catalogue of everything you own and suggests what to wear based on the
           day's weather — so you never have to guess at the forecast before getting dressed.
         </p>
         <div className="landing__cta">
