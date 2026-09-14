@@ -7,6 +7,7 @@ import { ClosetPage } from './pages/ClosetPage';
 import { ConnectPage } from './pages/ConnectPage';
 import { ConsentPage } from './pages/ConsentPage';
 import { CapacityNotice } from './pages/CapacityNotice';
+import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -72,7 +73,15 @@ function Routed() {
           </Route>
         </>
       ) : (
-        <Route path="*" element={<LoginPage />} />
+        <>
+          {/* Logged out: the root is a public landing page (Google's OAuth
+              review rejects a homepage that is only a login screen). The login
+              form is its own route, and anything else — including a consent
+              link arriving mid-flow — falls through to it. */}
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="*" element={<LoginPage />} />
+        </>
       )}
     </Routes>
   );
