@@ -3,11 +3,11 @@ import { Link } from 'react-router-dom';
 const FEATURES = [
   {
     title: 'Catalogue once',
-    body: 'Add each item to your closet a single time — descriptions, categories, and the details that matter.',
+    body: 'Add each item to your closet a single time with simple descriptions.',
   },
   {
     title: 'Dressed for the weather',
-    body: "Every morning, get outfit suggestions built around your local forecast and what you actually own.",
+    body: "Every morning, or night, get outfit recommendations built around your local forecast and what is actually in your closet.",
   },
   {
     title: 'Bring your own assistant',
@@ -35,10 +35,10 @@ export function LandingPage() {
       </header>
 
       <main className="landing__hero">
-        <h1 className="landing__title">Your closet, catalogued once — then dressed every morning.</h1>
+        <h1 className="landing__title">Weatherpruf - your AI powered personal stylist and closet manager.</h1>
         <p className="landing__lede">
           Weatherpruf keeps a catalogue of everything you own and suggests what to wear based on the
-          day's weather — so you never have to guess at the forecast before getting dressed.
+          weather — so you can get out the door faster.
         </p>
         <div className="landing__cta">
           <Link to="/login" className="button button--primary">
