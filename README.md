@@ -16,7 +16,9 @@ combining. That keeps the server to CRUD plus a single guarded query path.
 connector (`https://app.weatherpruf.live/mcp/`, trailing slash) from one container on ECS Express
 Mode, backed by Supabase.
 
-Full design and build retrospective: [`spec-v1.md`](spec-v1.md).
+Design docs: [`spec-original.v1.md`](spec-original.v1.md) is the forward-looking build spec (the plan
+and the tickets); [`spec-as-built.v1.md`](spec-as-built.v1.md) is the retrospective (what shipped, and
+where the plan diverged).
 
 ## Layout
 

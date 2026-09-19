@@ -1,10 +1,11 @@
 # weatherpruf — v1 Spec (reverse-engineered)
 
-*This is the design of weatherpruf as it was actually built and shipped, written after the fact.
-Earlier drafts of this file were a forward-looking build spec organised around tickets and revisions;
-this version replaces that framing entirely. It describes what exists, why each decision went the way
-it did, and — because a lot of the interesting decisions only became visible during the build — what
-the plan did not anticipate and how the shipped system differs from it.*
+*This is the design of weatherpruf as it was actually built and shipped, written after the fact. Its
+companion, [`spec-original.v1.md`](spec-original.v1.md), is the forward-looking build spec — the plan
+and the tickets — written to be read before the code exists; this document is the retrospective read
+after it. It describes what exists, why each decision went the way it did, and — because a lot of the
+interesting decisions only became visible during the build — what the plan did not anticipate and how
+the shipped system differs from it.*
 
 **What this document is for.** Three things. (1) A single place to understand how weatherpruf is put
 together without reading the whole codebase. (2) A record of the reasoning behind the non-obvious
