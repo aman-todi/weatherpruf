@@ -1,4 +1,4 @@
-"""The eight MCP tools (spec §4).
+"""The nine MCP tools (spec §4).
 
 Every tool here is a thin adapter. The rules — the 200-item cap, the five-colour
 limit, category-field validation, batch partial success, the daily call cap —
@@ -184,7 +184,7 @@ def _parse_item_id(item_id: str) -> UUID:
 
 
 def register_tools(mcp: FastMCP) -> None:
-    """Register all eight tools on the server (spec §4)."""
+    """Register all nine tools on the server (spec §4)."""
 
     # -- structure ----------------------------------------------------------
 

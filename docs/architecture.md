@@ -18,7 +18,7 @@ flowchart LR
   subgraph container["One container — FastAPI on uvicorn :8000 (single origin)"]
     spa["React SPA<br/>served at /"]
     api["REST API<br/>/api/*"]
-    mcp["MCP server<br/>/mcp/ — 8 tools (FastMCP)"]
+    mcp["MCP server<br/>/mcp/ — 9 tools (FastMCP)"]
     oauth["OAuth proxy<br/>/authorize /token /register<br/>/auth/callback /consent"]
     authmod["auth: verify Supabase JWT<br/>(JWKS, HS256 fallback)"]
     dbmod["db: asyncpg pools<br/>app role + read-only role"]

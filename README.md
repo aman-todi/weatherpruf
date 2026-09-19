@@ -12,7 +12,11 @@ no weather.** It exposes the closet's structure and one safe way to query it. Th
 the weather itself, reads the taxonomy from `get_closet_structure`, builds a filter, and does the
 combining. That keeps the server to CRUD plus a single guarded query path.
 
-Full design: [`wardrobe-mcp-app-v1-spec.md`](wardrobe-mcp-app-v1-spec.md).
+**v1 is live** at [`app.weatherpruf.live`](https://app.weatherpruf.live) — web app, REST API and MCP
+connector (`https://app.weatherpruf.live/mcp/`, trailing slash) from one container on ECS Express
+Mode, backed by Supabase.
+
+Full design and build retrospective: [`spec-v1.md`](spec-v1.md).
 
 ## Layout
 
@@ -189,11 +193,14 @@ Errors — domain and request-validation alike — come back in one envelope:
 
 ## Status
 
-| Ticket | Scope | State |
+v1 is built, deployed and live. All six areas below are done and verified against the deployed
+instance at `app.weatherpruf.live`.
+
+| Area | Scope | State |
 |---|---|---|
 | 1 | Schema, RLS, read-only role, FastAPI skeleton, shared services | done |
 | 2 | REST API for closet management | done |
-| 3 | MCP server: tools, safe query execution, rate limiting | done — the Claude.ai OAuth test needs a deployed instance |
-| 4 | React + Vite frontend | done — the magic-link flow needs a real Supabase project |
-| 5 | Docker + ECS Express Mode | scaffolded — see `infra/README.md` for what is unverified |
-| 6 | End-to-end verification and polish | seed script done; the Claude.ai smoke test needs a deployed instance |
+| 3 | MCP server: nine tools, safe query execution, rate limiting | done — Claude.ai connector OAuth verified live |
+| 4 | React + Vite frontend | done — magic-link auth verified against the real Supabase project |
+| 5 | Docker + ECS Express Mode | deployed to `us-east-2`; custom domain and TLS on `app.weatherpruf.live` |
+| 6 | End-to-end verification and polish | done — adversarial query battery and the Claude.ai smoke test both run against the live instance |

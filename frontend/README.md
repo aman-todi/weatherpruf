@@ -9,13 +9,16 @@ assistant. There is deliberately no chat UI here.
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local   # then fill in the three values
+cp .env.example .env.local   # then fill in the two Supabase values
 npm run dev                  # http://localhost:5173
 ```
 
-`VITE_API_BASE_URL` must point at a running backend (`uvicorn app.main:app` on
-`http://localhost:8000` by default), and the backend's `CORS_ALLOW_ORIGINS` must include
-`http://localhost:5173`.
+Only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are required. The API is served from the
+**same origin** as the app: in production the FastAPI container serves both, and in development the
+Vite dev server proxies `/api` to the backend (`vite.config.ts`), so the client uses relative URLs
+and no CORS is involved. `VITE_API_BASE_URL` is left unset unless the frontend is ever split onto its
+own domain, and `VITE_DEV_API_TARGET` overrides the proxy target if the backend is not on
+`http://localhost:8000`. See `.env.example`.
 
 ```bash
 npm run build        # tsc -b && vite build

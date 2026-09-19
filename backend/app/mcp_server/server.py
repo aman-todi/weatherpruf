@@ -75,7 +75,7 @@ class _LifespanOnFirstRequest:
 
 
 def build_server(settings: Settings | None = None):
-    """The configured ``FastMCP`` instance, with all eight tools registered."""
+    """The configured ``FastMCP`` instance, with all nine tools registered."""
     from fastmcp import FastMCP
 
     from app.mcp_server import instructions
